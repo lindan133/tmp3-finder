@@ -4,7 +4,7 @@
   <img src="docs/tmp3-banner.png" alt="Trivia Murder Party 3" width="420">
 </p>
 
-A compact desktop helper for **Trivia Murder Party 3** — search correct answers from your local game JSON files.
+A compact desktop helper for **[Trivia Murder Party 3](https://store.steampowered.com/app/3048060/Trivia_Murder_Party_3/)** — search correct answers from your local game JSON files.
 
 Made with ❤️ by [kankstudio.ru](https://kankstudio.ru/).
 
@@ -135,7 +135,7 @@ The logo font (`BalterUnOff.otf`) is included for UI branding; redistribution te
 
 ## Русский
 
-Компактный помощник для **Trivia Murder Party 3** — быстрый поиск ответов по локальным JSON-файлам игры.
+Компактный помощник для **[Trivia Murder Party 3](https://store.steampowered.com/app/3048060/Trivia_Murder_Party_3/)** — быстрый поиск ответов по локальным JSON-файлам игры.
 
 ### Возможности
 
