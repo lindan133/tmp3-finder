@@ -65,7 +65,7 @@ Browser + local API (`server.mjs`) — development only.
 
 ## Usage
 
-1. Install TMP3 on Steam (Demo or full edition).
+1. Install TMP3 on Steam (Demo).
 2. Open Finder — the Content path is usually detected automatically.
 3. Pick a mode from the **☰ menu** or leave **Auto**.
 4. Type question text, an answer, a category, or a host line.
