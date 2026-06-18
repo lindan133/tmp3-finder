@@ -1,7 +1,7 @@
 # TMP3 Finder
 
 <p align="center">
-  <img src="build/icon.png" alt="TMP3 Finder" width="96" height="96">
+  <img src="docs/tmp3-banner.png" alt="Trivia Murder Party 3" width="420">
 </p>
 
 A compact desktop helper for **Trivia Murder Party 3** — search correct answers from your local game JSON files.
