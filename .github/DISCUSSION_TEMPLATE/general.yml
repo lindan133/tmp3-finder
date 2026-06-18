@@ -1,0 +1,13 @@
+title: General
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this category for questions, feedback, and ideas that are not bug reports.
+
+  - type: textarea
+    id: body
+    attributes:
+      label: Your message
+    validations:
+      required: true

@@ -1,5 +1,10 @@
 # TMP3 Finder
 
+[![CI](https://github.com/lindan133/tmp3-finder/actions/workflows/ci.yml/badge.svg)](https://github.com/lindan133/tmp3-finder/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/lindan133/tmp3-finder)](https://github.com/lindan133/tmp3-finder/releases/latest)
+[![License](https://img.shields.io/github/license/lindan133/tmp3-finder)](LICENSE)
+[![Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/lindan133/tmp3-finder/releases/latest)
+
 <p align="center">
   <img src="docs/tmp3-banner.png" alt="Trivia Murder Party 3" width="420">
 </p>
@@ -9,6 +14,36 @@ A compact desktop helper for **[Trivia Murder Party 3](https://store.steampowere
 Made with ❤️ by [kankstudio.ru](https://kankstudio.ru/).
 
 > **Disclaimer:** Unofficial fan tool. Not affiliated with Jackbox Games. Does not distribute game content. Use only with files from your own legal TMP3 installation.
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/main.png" alt="TMP3 Finder main window" width="360">
+  &nbsp;
+  <img src="docs/screenshots/settings.png" alt="TMP3 Finder settings" width="360">
+</p>
+
+## Download (Windows)
+
+[![Latest release](https://img.shields.io/github/v/release/lindan133/tmp3-finder?label=download)](https://github.com/lindan133/tmp3-finder/releases/latest)
+
+| File | Description |
+|------|-------------|
+| [**TMP3-Finder-Portable.exe**](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Portable.exe) | Portable — no install, just run |
+| [**TMP3-Finder-Setup-1.0.0.exe**](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Setup-1.0.0.exe) | NSIS installer |
+
+> **Note:** Installer filename includes the version (`1.0.0`). For newer releases, open [Releases](https://github.com/lindan133/tmp3-finder/releases/latest) and pick the matching setup file.
+
+### Build from source
+
+```bash
+npm install
+npm run dist
+```
+
+> If the project lives in OneDrive, the build writes to `C:/Temp/tmp3-release` first, then copies artifacts into `release/` (avoids EPERM errors).
+
+Or double-click `build.bat` on Windows.
 
 ## Features
 
@@ -24,48 +59,9 @@ Made with ❤️ by [kankstudio.ru](https://kankstudio.ru/).
 - **Auto-copy** on exact match (optional)
 - **English & Russian UI** — English by default; switch in Settings → Language
 
-## Download (Windows)
-
-Pre-built binaries can be attached to [GitHub Releases](https://github.com/lindan133/tmp3-finder/releases). After building locally, check the `release/` folder:
-
-| File | Description |
-|------|-------------|
-| `TMP3-Finder-Portable.exe` | Portable, no install |
-| `TMP3-Finder-Setup-1.0.0.exe` | NSIS installer |
-
-### Build from source
-
-```bash
-npm install
-npm run dist
-```
-
-> If the project lives in OneDrive, the build writes to `C:/Temp/tmp3-release` first, then copies artifacts into `release/` (avoids EPERM errors).
-
-Or double-click `build.bat` on Windows.
-
-### Run without Node.js
-
-Double-click `release/TMP3-Finder-Portable.exe` or `start.bat`.
-
-## Development
-
-```bash
-npm install
-npm run dev
-```
-
-Opens the Electron window.
-
-```bash
-npm run dev:web
-```
-
-Browser + local API (`server.mjs`) — development only.
-
 ## Usage
 
-1. Install TMP3 on Steam (Demo).
+1. Install [Trivia Murder Party 3](https://store.steampowered.com/app/3048060/Trivia_Murder_Party_3/) on Steam (Demo or full edition).
 2. Open Finder — the Content path is usually detected automatically.
 3. Pick a mode from the **☰ menu** or leave **Auto**.
 4. Type question text, an answer, a category, or a host line.
@@ -100,12 +96,28 @@ Required files:
 | `TMP3SubjectiveQuestion.json` | No |
 | `VO.json` | No |
 
+## Development
+
+```bash
+npm install
+npm run dev
+```
+
+Opens the Electron window.
+
+```bash
+npm run dev:web
+```
+
+Browser + local API (`server.mjs`) — development only.
+
 ## Project structure
 
 ```
 electron/          Electron main process, data loading, Steam paths
 src/               React UI, search, i18n
 build/             App icon
+docs/              README banner and screenshots
 scripts/           Release copy helper
 ```
 
@@ -125,6 +137,16 @@ npm test
 | `npm run dist:portable` | Portable only |
 | `npm run dist:setup` | Installer only |
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
+## Contributing
+
+- [Report a bug](https://github.com/lindan133/tmp3-finder/issues/new?template=bug_report.yml)
+- [Request a feature](https://github.com/lindan133/tmp3-finder/issues/new?template=feature_request.yml)
+- [Start a discussion](https://github.com/lindan133/tmp3-finder/discussions)
+
 ## License
 
 [MIT](LICENSE) — see [LICENSE](LICENSE) for details.
@@ -137,13 +159,30 @@ The logo font (`BalterUnOff.otf`) is included for UI branding; redistribution te
 
 Компактный помощник для **[Trivia Murder Party 3](https://store.steampowered.com/app/3048060/Trivia_Murder_Party_3/)** — быстрый поиск ответов по локальным JSON-файлам игры.
 
+### Скачать
+
+[![Последний релиз](https://img.shields.io/github/v/release/lindan133/tmp3-finder?label=скачать)](https://github.com/lindan133/tmp3-finder/releases/latest)
+
+- [Portable .exe](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Portable.exe) — без установки
+- [Установщик .exe](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Setup-1.0.0.exe)
+
 ### Возможности
 
 - Авто-режим, вопросы, финальный раунд, субъективные вопросы, реплики VO
 - Pin, глобальный хоткей, кэш базы, тёмная/светлая тема
 - **Язык:** английский по умолчанию; русский — в **Настройки → Язык**
 
-### Сборка и запуск
+### Как пользоваться
+
+1. Установите [TMP3 в Steam](https://store.steampowered.com/app/3048060/Trivia_Murder_Party_3/) (Demo или полная версия).
+2. Откройте Finder — путь к Content обычно определяется автоматически.
+3. Выберите режим через **☰** или оставьте **Авто**.
+4. Введите текст вопроса, ответа, категории или реплики.
+5. Клик по ответу — копирование в буфер.
+
+Настройки: **☰ → Settings (Настройки)**.
+
+### Сборка
 
 ```bash
 npm install
