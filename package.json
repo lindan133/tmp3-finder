@@ -1,0 +1,82 @@
+{
+  "name": "tmp3-finder",
+  "version": "1.0.0",
+  "description": "Desktop helper for Trivia Murder Party 3 — search answers from local game JSON files",
+  "author": "kankstudio.ru",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lindan133/tmp3-finder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lindan133/tmp3-finder/issues"
+  },
+  "homepage": "https://github.com/lindan133/tmp3-finder#readme",
+  "keywords": [
+    "trivia-murder-party-3",
+    "tmp3",
+    "jackbox",
+    "electron",
+    "answer-finder",
+    "desktop-app"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:web": "concurrently -k \"node server.mjs\" \"vite --mode web\"",
+    "build": "tsc -b && vite build",
+    "dist": "npm run build && npx electron-builder --win portable nsis --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
+    "dist:portable": "npm run build && npx electron-builder --win portable --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
+    "dist:setup": "npm run build && npx electron-builder --win nsis --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
+    "electron": "^35.1.5",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.6",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.kankstudio.tmp3finder",
+    "productName": "TMP3 Finder",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "TMP3-Finder-Portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "TMP3-Finder-Setup-${version}.exe"
+    }
+  }
+}
