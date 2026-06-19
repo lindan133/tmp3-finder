@@ -17,12 +17,18 @@ interface Tmp3Api {
   saveSettings(partial: Partial<AppSettings>): Promise<AppSettings>;
   saveConfig(contentPath: string): Promise<string>;
   checkPath(contentPath: string): Promise<PathCheckResult>;
+  checkDatabaseStale(
+    contentPath: string,
+    loadedFingerprint: string | null
+  ): Promise<{ stale: boolean; fingerprint: string | null }>;
   loadData(contentPath?: string, forceRefresh?: boolean): Promise<GameData>;
   getSteamInstalls(): Promise<SteamInstall[]>;
   pickFolder(): Promise<string | null>;
   openExternal(url: string): Promise<void>;
   onFocusSearch(callback: () => void): () => void;
   onSettingsChanged(callback: (settings: AppSettings) => void): () => void;
+  onWindowFocus(callback: () => void): () => void;
+  onReloadDatabase(callback: () => void): () => void;
 }
 
 declare global {

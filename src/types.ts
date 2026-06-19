@@ -1,4 +1,4 @@
-export type QuestionMode = "auto" | "trivia" | "finalRound" | "subjective" | "vo";
+export type QuestionMode = "trivia" | "finalRound" | "subjective" | "vo";
 
 export interface Choice {
   text: string;
@@ -56,6 +56,7 @@ export interface LoadInfo {
   loadedAt: string;
   edition?: "demo" | "full";
   fromCache?: boolean;
+  fingerprint?: string;
 }
 
 export interface GameData {
@@ -125,6 +126,9 @@ export interface AppSettings {
   theme: AppTheme;
   hotkey: string;
   language: AppLanguage;
+  onboardingComplete: boolean;
+  windowWidth?: number;
+  windowHeight?: number;
 }
 
 export type AppTheme = "dark" | "light";
@@ -138,10 +142,3 @@ export interface SteamInstall {
   gameFolder: string;
 }
 
-export type ManualQuestionMode = Exclude<QuestionMode, "auto">;
-
-export interface AutoSearchResult {
-  mode: ManualQuestionMode;
-  result: SearchResult;
-  exact: boolean;
-}

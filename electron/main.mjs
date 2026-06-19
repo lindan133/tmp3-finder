@@ -23,14 +23,43 @@ const WINDOW = {
 
 let mainWindow = null;
 let currentHotkey = DEFAULT_HOTKEY;
+let resizeSaveTimer = null;
 
 function applyWindowSettings(settings) {
   if (!mainWindow) return;
 
   mainWindow.setMinimumSize(WINDOW.minWidth, WINDOW.minHeight);
-  mainWindow.setSize(WINDOW.width, WINDOW.height, true);
   mainWindow.setAlwaysOnTop(Boolean(settings.alwaysOnTop));
   mainWindow.webContents.send("settings-changed", settings);
+}
+
+function restoreWindowBounds(settings) {
+  if (!mainWindow || mainWindow.isMaximized()) return;
+
+  const width = Math.max(
+    settings.windowWidth ?? WINDOW.width,
+    WINDOW.minWidth
+  );
+  const height = Math.max(
+    settings.windowHeight ?? WINDOW.height,
+    WINDOW.minHeight
+  );
+  mainWindow.setSize(width, height, false);
+}
+
+function attachWindowPersistence() {
+  if (!mainWindow) return;
+
+  mainWindow.on("resize", () => {
+    if (!mainWindow || mainWindow.isMaximized()) return;
+
+    clearTimeout(resizeSaveTimer);
+    resizeSaveTimer = setTimeout(() => {
+      if (!mainWindow || mainWindow.isMaximized()) return;
+      const [width, height] = mainWindow.getSize();
+      void dataService.saveSettings({ windowWidth: width, windowHeight: height });
+    }, 500);
+  });
 }
 
 function registerHotkey(accelerator) {
@@ -74,6 +103,18 @@ function createWindow() {
     mainWindow.loadFile(join(__dirname, "../dist/index.html"));
   }
 
+  attachWindowPersistence();
+
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const modifier = input.control || input.meta;
+    if (!modifier || input.shift || input.alt) return;
+    if (input.key.toLowerCase() !== "r") return;
+
+    event.preventDefault();
+    mainWindow.webContents.send("reload-database");
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("http://") || url.startsWith("https://")) {
       shell.openExternal(url);
@@ -89,8 +130,13 @@ function createWindow() {
     }
   });
 
+  mainWindow.on("focus", () => {
+    mainWindow?.webContents.send("window-focus");
+  });
+
   mainWindow.webContents.on("did-finish-load", async () => {
     const settings = await dataService.loadSettings();
+    restoreWindowBounds(settings);
     applyWindowSettings(settings);
     registerHotkey(settings.hotkey);
   });
@@ -135,6 +181,9 @@ ipcMain.handle("check-path", (_e, contentPath) =>
 );
 ipcMain.handle("load-data", (_e, contentPath, forceRefresh) =>
   dataService.loadData(contentPath, { forceRefresh: Boolean(forceRefresh) })
+);
+ipcMain.handle("check-database-stale", (_e, contentPath, loadedFingerprint) =>
+  dataService.checkDatabaseStale(contentPath, loadedFingerprint)
 );
 ipcMain.handle("get-steam-installs", () => findSteamInstalls());
 ipcMain.handle("open-external", (_e, url) => {

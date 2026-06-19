@@ -10,13 +10,37 @@ export const DEFAULT_HOTKEY = "CommandOrControl+Shift+F";
 
 const DEFAULT_SETTINGS = {
   contentPath: DEFAULT_CONTENT_PATH,
-  alwaysOnTop: true,
+  alwaysOnTop: false,
   soundOnMatch: true,
   autoCopyOnMatch: false,
   theme: "dark",
   hotkey: DEFAULT_HOTKEY,
   language: "en",
+  onboardingComplete: false,
 };
+
+const WARNING_TEXT = {
+  en: {
+    fileNotFound: (file) => `${file} not found`,
+    optionalMissing: (file) => `${file} not found (optional)`,
+    invalidTrivia: "TMP3TriviaQuestion.json contains no valid questions",
+    invalidFinalRound: "TMP3FinalRoundGrouping.json contains no valid categories",
+    missingRequired: (files) => `Required files missing: ${files}`,
+  },
+  ru: {
+    fileNotFound: (file) => `${file} не найден`,
+    optionalMissing: (file) => `${file} не найден (опционально)`,
+    invalidTrivia: "TMP3TriviaQuestion.json не содержит валидных вопросов",
+    invalidFinalRound: "TMP3FinalRoundGrouping.json не содержит валидных категорий",
+    missingRequired: (files) => `Не найдены обязательные файлы: ${files}`,
+  },
+};
+
+function warnText(language, key, ...args) {
+  const catalog = WARNING_TEXT[language === "ru" ? "ru" : "en"];
+  const value = catalog[key];
+  return typeof value === "function" ? value(...args) : value;
+}
 
 const DATA_FILES = [
   "TMP3TriviaQuestion.json",
@@ -136,6 +160,16 @@ export function createDataService(configPath, cacheDir) {
       const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
       parsed.hotkey = parsed.hotkey || DEFAULT_HOTKEY;
       parsed.language = parsed.language || "en";
+      parsed.onboardingComplete =
+        "onboardingComplete" in parsed
+          ? Boolean(parsed.onboardingComplete)
+          : true;
+      if (parsed.windowWidth != null) {
+        parsed.windowWidth = Number(parsed.windowWidth) || undefined;
+      }
+      if (parsed.windowHeight != null) {
+        parsed.windowHeight = Number(parsed.windowHeight) || undefined;
+      }
       return parsed;
     } catch {
       return { ...DEFAULT_SETTINGS };
@@ -248,7 +282,7 @@ export function createDataService(configPath, cacheDir) {
     );
   }
 
-  async function loadOptionalJson(contentPath, filename, sanitizer) {
+  async function loadOptionalJson(contentPath, filename, sanitizer, language) {
     try {
       const data = await readJsonFile(contentPath, filename);
       const items = asArray(data.content, filename);
@@ -256,13 +290,16 @@ export function createDataService(configPath, cacheDir) {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("ENOENT")) {
-        return { items: [], warning: `${filename} не найден` };
+        return {
+          items: [],
+          warning: warnText(language, "fileNotFound", filename),
+        };
       }
       return { items: [], warning: message };
     }
   }
 
-  async function loadDataFromDisk(path, inspection) {
+  async function loadDataFromDisk(path, inspection, language) {
     const warnings = [];
 
     const triviaRaw = await readJsonFile(path, "TMP3TriviaQuestion.json");
@@ -273,9 +310,10 @@ export function createDataService(configPath, cacheDir) {
     const subjectiveResult = await loadOptionalJson(
       path,
       "TMP3SubjectiveQuestion.json",
-      sanitizeSubjective
+      sanitizeSubjective,
+      language
     );
-    const voResult = await loadOptionalJson(path, "VO.json", sanitizeVo);
+    const voResult = await loadOptionalJson(path, "VO.json", sanitizeVo, language);
 
     const trivia = sanitizeTrivia(asArray(triviaRaw.content, "TMP3TriviaQuestion.json"));
     const finalRound = sanitizeFinalRound(
@@ -283,12 +321,10 @@ export function createDataService(configPath, cacheDir) {
     );
 
     if (trivia.length === 0) {
-      throw new Error("TMP3TriviaQuestion.json не содержит валидных вопросов");
+      throw new Error(warnText(language, "invalidTrivia"));
     }
     if (finalRound.length === 0) {
-      throw new Error(
-        "TMP3FinalRoundGrouping.json не содержит валидных категорий"
-      );
+      throw new Error(warnText(language, "invalidFinalRound"));
     }
 
     for (const warning of [subjectiveResult.warning, voResult.warning]) {
@@ -296,10 +332,12 @@ export function createDataService(configPath, cacheDir) {
     }
 
     if (!inspection.files.subjective) {
-      warnings.push("TMP3SubjectiveQuestion.json не найден (опционально)");
+      warnings.push(
+        warnText(language, "optionalMissing", "TMP3SubjectiveQuestion.json")
+      );
     }
     if (!inspection.files.vo) {
-      warnings.push("VO.json не найден (опционально)");
+      warnings.push(warnText(language, "optionalMissing", "VO.json"));
     }
 
     const edition = path.toLowerCase().includes("demo") ? "demo" : "full";
@@ -327,11 +365,12 @@ export function createDataService(configPath, cacheDir) {
 
   async function loadData(contentPath, options = {}) {
     const settings = await loadSettings();
+    const language = settings.language || "en";
     const path = contentPath || settings.contentPath;
     const inspection = await inspectPath(path);
     if (!inspection.ok) {
       throw new Error(
-        `Не найдены обязательные файлы: ${inspection.missingRequired.join(", ")}`
+        warnText(language, "missingRequired", inspection.missingRequired.join(", "))
       );
     }
 
@@ -348,14 +387,33 @@ export function createDataService(configPath, cacheDir) {
             ...cached.loadInfo,
             loadedAt: new Date().toISOString(),
             fromCache: true,
+            fingerprint,
           },
         };
       }
     }
 
-    const data = await loadDataFromDisk(path, inspection);
+    const data = await loadDataFromDisk(path, inspection, language);
+    data.loadInfo.fingerprint = fingerprint;
     await writeCache(path, fingerprint, data);
     return data;
+  }
+
+  async function getDataFingerprint(contentPath) {
+    const settings = await loadSettings();
+    const path = contentPath || settings.contentPath;
+    return buildFingerprint(path);
+  }
+
+  async function checkDatabaseStale(contentPath, loadedFingerprint) {
+    if (!loadedFingerprint) return { stale: false, fingerprint: null };
+    const settings = await loadSettings();
+    const path = contentPath || settings.contentPath;
+    const fingerprint = await buildFingerprint(path);
+    return {
+      stale: fingerprint !== loadedFingerprint,
+      fingerprint,
+    };
   }
 
   return {
@@ -379,5 +437,7 @@ export function createDataService(configPath, cacheDir) {
     inspectPath,
     loadData,
     clearCache,
+    getDataFingerprint,
+    checkDatabaseStale,
   };
 }

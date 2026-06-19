@@ -1,7 +1,7 @@
 {
   "name": "tmp3-finder",
-  "version": "1.0.0",
-  "description": "Desktop helper for Trivia Murder Party 3 — search answers from local game JSON files",
+  "version": "1.1.0",
+  "description": "Desktop helper for Trivia Murder Party 3 Demo — search answers from local game JSON files (Tauri, ~10 MB)",
   "author": "kankstudio.ru",
   "license": "MIT",
   "repository": {
@@ -16,7 +16,7 @@
     "trivia-murder-party-3",
     "tmp3",
     "jackbox",
-    "electron",
+    "tauri",
     "answer-finder",
     "desktop-app"
   ],
@@ -26,19 +26,27 @@
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev": "node scripts/prepare-tauri-dev.mjs && node scripts/tauri.mjs dev",
+    "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:vite": "vite",
     "dev:web": "concurrently -k \"node server.mjs\" \"vite --mode web\"",
     "build": "tsc -b && vite build",
-    "dist": "npm run build && npx electron-builder --win portable nsis --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
-    "dist:portable": "npm run build && npx electron-builder --win portable --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
-    "dist:setup": "npm run build && npx electron-builder --win nsis --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
+    "dist": "node scripts/tauri.mjs build && node scripts/copy-tauri-release.mjs",
+    "dist:electron": "npm run build && npx electron-builder --win portable nsis --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
+    "dist:electron:portable": "npm run build && npx electron-builder --win portable --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
+    "dist:electron:setup": "npm run build && npx electron-builder --win nsis --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
     "test": "vitest run"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.2",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.3",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",

@@ -1,10 +1,10 @@
-import type { ManualQuestionMode, QuestionMode, AppLanguage } from "../types";
+import type { QuestionMode, AppLanguage } from "../types";
 
 export interface MessageCatalog {
   modes: Record<QuestionMode, string>;
   compactModes: Record<QuestionMode, string>;
   placeholders: Record<QuestionMode, string>;
-  countLabels: Record<ManualQuestionMode, string>;
+  countLabels: Record<QuestionMode, string>;
   pin: string;
   settings: string;
   closeMenu: string;
@@ -31,6 +31,7 @@ export interface MessageCatalog {
   reloadingJson: string;
   databaseUpdated: string;
   reloadHint: string;
+  reloadHotkeyHint: string;
   bestSteamPath: string;
   save: string;
   aboutDisclaimer: string;
@@ -51,9 +52,24 @@ export interface MessageCatalog {
   foundCount: string;
   modeLabel: string;
   exactMatch: string;
+  fuzzyMatch: string;
+  matchConfidence: string;
   copiedBadge: string;
   nothingFound: string;
-  autoModeDetected: string;
+  tryOtherMode: string;
+  enterToCopy: string;
+  clickToCopyCard: string;
+  modeHotkeysHint: string;
+  footerShow: string;
+  footerHide: string;
+  done: string;
+  databaseStale: string;
+  databaseStaleReload: string;
+  onboardingWelcome: string;
+  onboardingDescription: string;
+  onboardingContinue: string;
+  onboardingPathPlaceholder: string;
+  onboardingPathInvalid: string;
   pathRequiredOk: string;
   pathMissing: string;
   pathOptionalMissing: string;
@@ -83,6 +99,6 @@ export type Translator = {
   mode: (m: QuestionMode) => string;
   compactMode: (m: QuestionMode) => string;
   placeholder: (m: QuestionMode) => string;
-  countLabel: (m: ManualQuestionMode) => string;
+  countLabel: (m: QuestionMode) => string;
   voHint: (key: keyof MessageCatalog["voHints"]) => string;
 };

@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("tmp3", {
   saveSettings: (partial) => ipcRenderer.invoke("save-settings", partial),
   saveConfig: (contentPath) => ipcRenderer.invoke("save-config", contentPath),
   checkPath: (contentPath) => ipcRenderer.invoke("check-path", contentPath),
+  checkDatabaseStale: (contentPath, loadedFingerprint) =>
+    ipcRenderer.invoke("check-database-stale", contentPath, loadedFingerprint),
   loadData: (contentPath, forceRefresh) =>
     ipcRenderer.invoke("load-data", contentPath, forceRefresh),
   getSteamInstalls: () => ipcRenderer.invoke("get-steam-installs"),
@@ -20,5 +22,15 @@ contextBridge.exposeInMainWorld("tmp3", {
     const listener = (_e, settings) => callback(settings);
     ipcRenderer.on("settings-changed", listener);
     return () => ipcRenderer.removeListener("settings-changed", listener);
+  },
+  onWindowFocus: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("window-focus", listener);
+    return () => ipcRenderer.removeListener("window-focus", listener);
+  },
+  onReloadDatabase: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("reload-database", listener);
+    return () => ipcRenderer.removeListener("reload-database", listener);
   },
 });

@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => ({
   base: "./",
   server: {
     port: 5173,
+    strictPort: true,
     ...(mode === "web"
       ? {
           proxy: {

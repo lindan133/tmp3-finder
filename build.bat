@@ -1,7 +1,9 @@
 @echo off
 cd /d "%~dp0"
 
-echo Сборка Finder...
+echo Сборка Finder (Tauri)...
+echo Первый раз может занять несколько минут — нужен Rust (rustup.rs)
+echo.
 call npm run dist
 if errorlevel 1 exit /b 1
 

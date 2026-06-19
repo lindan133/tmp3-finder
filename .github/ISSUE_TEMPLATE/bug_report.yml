@@ -6,13 +6,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. Please include steps to reproduce and your TMP3 edition (Demo / full).
+        Thanks for the report. Please include steps to reproduce. This build targets **TMP3 Demo** only.
 
   - type: input
     id: version
     attributes:
       label: App version
-      placeholder: "1.0.0"
+      placeholder: "1.1.0"
     validations:
       required: true
 
@@ -22,7 +22,6 @@ body:
       label: TMP3 edition
       options:
         - Demo
-        - Full
         - Unknown
     validations:
       required: true

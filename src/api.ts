@@ -4,6 +4,8 @@ import type {
   PathCheckResult,
   SteamInstall,
 } from "./types";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export interface AppConfig {
   contentPath: string;
@@ -31,7 +33,8 @@ async function getElectronApi() {
   );
 }
 
-async function useWebApi() {
+async function useWebApi(): Promise<boolean> {
+  if (isTauri()) return false;
   if (isElectronApp()) {
     await getElectronApi();
     return false;
@@ -40,6 +43,10 @@ async function useWebApi() {
 }
 
 export async function fetchConfig(): Promise<AppConfig> {
+  if (isTauri()) {
+    return invoke<AppConfig>("get_config");
+  }
+
   if (!(await useWebApi())) {
     return (await getElectronApi())!.getConfig();
   }
@@ -58,12 +65,17 @@ export async function fetchConfig(): Promise<AppConfig> {
       theme: "dark",
       hotkey: "CommandOrControl+Shift+F",
       language: "en",
+      onboardingComplete: false,
       ...data.settings,
     },
   };
 }
 
 export async function fetchSettings(): Promise<AppSettings> {
+  if (isTauri()) {
+    return invoke<AppSettings>("get_settings");
+  }
+
   if (!(await useWebApi())) {
     return (await getElectronApi())!.getSettings();
   }
@@ -74,6 +86,13 @@ export async function fetchSettings(): Promise<AppSettings> {
 export async function saveSettings(
   partial: Partial<AppSettings>
 ): Promise<AppSettings> {
+  if (isTauri()) {
+    return invoke<AppSettings & { hotkeyAssignFailed?: boolean }>(
+      "save_settings",
+      { partial }
+    );
+  }
+
   if (!(await useWebApi())) {
     return (await getElectronApi())!.saveSettings(partial);
   }
@@ -92,6 +111,10 @@ export async function saveConfig(contentPath: string): Promise<void> {
 }
 
 export async function checkPath(path: string): Promise<PathCheckResult> {
+  if (isTauri()) {
+    return invoke<PathCheckResult>("check_path", { contentPath: path });
+  }
+
   if (!(await useWebApi())) {
     return (await getElectronApi())!.checkPath(path);
   }
@@ -110,6 +133,10 @@ export async function checkPath(path: string): Promise<PathCheckResult> {
 }
 
 export async function fetchSteamInstalls(): Promise<SteamInstall[]> {
+  if (isTauri()) {
+    return invoke<SteamInstall[]>("get_steam_installs");
+  }
+
   if (!(await useWebApi())) {
     return (await getElectronApi())!.getSteamInstalls();
   }
@@ -120,6 +147,11 @@ export async function fetchSteamInstalls(): Promise<SteamInstall[]> {
 }
 
 export async function pickFolder(): Promise<string | null> {
+  if (isTauri()) {
+    const settings = await fetchSettings();
+    return invoke<string | null>("pick_folder", { language: settings.language });
+  }
+
   if (!(await useWebApi())) {
     return (await getElectronApi())!.pickFolder();
   }
@@ -130,6 +162,13 @@ export async function loadGameData(
   contentPath?: string,
   forceRefresh = false
 ): Promise<GameData> {
+  if (isTauri()) {
+    return invoke<GameData>("load_data", {
+      contentPath: contentPath ?? null,
+      forceRefresh,
+    });
+  }
+
   if (!(await useWebApi())) {
     return (await getElectronApi())!.loadData(contentPath, forceRefresh);
   }
@@ -147,11 +186,49 @@ export async function loadGameData(
   return res.json();
 }
 
+export async function checkDatabaseStale(
+  contentPath: string,
+  loadedFingerprint: string | null
+): Promise<{ stale: boolean; fingerprint: string | null }> {
+  if (isTauri()) {
+    return invoke("check_database_stale", {
+      contentPath,
+      loadedFingerprint,
+    });
+  }
+
+  if (!(await useWebApi())) {
+    return (await getElectronApi())!.checkDatabaseStale(
+      contentPath,
+      loadedFingerprint
+    );
+  }
+  return { stale: false, fingerprint: loadedFingerprint };
+}
+
+export function subscribeWindowFocus(callback: () => void): (() => void) | null {
+  if (isTauri()) {
+    let unlisten: (() => void) | undefined;
+    void listen("window-focus", () => callback()).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }
+
+  if (!window.tmp3?.onWindowFocus) return null;
+  return window.tmp3.onWindowFocus(callback);
+}
+
 export async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
 }
 
 export async function openExternal(url: string): Promise<void> {
+  if (isTauri()) {
+    await invoke("open_external", { url });
+    return;
+  }
+
   if (!(await useWebApi())) {
     await (await getElectronApi())!.openExternal(url);
     return;
@@ -160,6 +237,14 @@ export async function openExternal(url: string): Promise<void> {
 }
 
 export function subscribeFocusSearch(callback: () => void): (() => void) | null {
+  if (isTauri()) {
+    let unlisten: (() => void) | undefined;
+    void listen("focus-search", () => callback()).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }
+
   if (!window.tmp3?.onFocusSearch) return null;
   return window.tmp3.onFocusSearch(callback);
 }
@@ -167,6 +252,29 @@ export function subscribeFocusSearch(callback: () => void): (() => void) | null 
 export function subscribeSettingsChanged(
   callback: (settings: AppSettings) => void
 ): (() => void) | null {
+  if (isTauri()) {
+    let unlisten: (() => void) | undefined;
+    void listen<AppSettings>("settings-changed", (event) => {
+      callback(event.payload);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }
+
   if (!window.tmp3?.onSettingsChanged) return null;
   return window.tmp3.onSettingsChanged(callback);
+}
+
+export function subscribeReloadDatabase(callback: () => void): (() => void) | null {
+  if (isTauri()) {
+    let unlisten: (() => void) | undefined;
+    void listen("reload-database", () => callback()).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }
+
+  if (!window.tmp3?.onReloadDatabase) return null;
+  return window.tmp3.onReloadDatabase(callback);
 }

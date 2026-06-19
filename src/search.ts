@@ -1,4 +1,25 @@
-import type { AutoSearchResult, GameData, SearchResult, VoEntry } from "./types";
+import type { GameData, QuestionMode, SearchResult, VoEntry } from "./types";
+
+export const MAX_SEARCH_RESULTS = 3;
+const MIN_MATCH_SCORE = 280;
+const MIN_FINAL_ROUND_SCORE = 500;
+const MIN_CONFIDENCE = 18;
+const STRONG_CATEGORY_SCORE = 1500;
+const FINAL_ITEM_MATCH_SCORE = 120;
+
+const STOP_WORDS = new Set([
+  "a", "an", "the", "in", "on", "at", "by", "to", "of", "or", "and",
+  "is", "it", "be", "as", "for", "you", "your", "how", "what", "which",
+  "when", "where", "who", "why", "can", "cant", "could", "would", "should",
+  "their", "they", "them", "this", "that", "these", "those", "but", "before",
+  "after", "far", "do", "does", "did",
+]);
+
+const RU_STOP_WORDS = new Set([
+  "и", "в", "во", "на", "с", "со", "к", "ко", "от", "о", "об", "по", "для",
+  "что", "как", "не", "это", "из", "за", "до", "при", "или", "но", "а", "же",
+  "ли", "бы", "то", "все", "у", "ещё", "еще", "от", "ни", "нет", "да",
+]);
 
 export function stripMarkup(text: string | undefined | null): string {
   if (!text) return "";
@@ -20,13 +41,14 @@ export function tokenize(text: string): string[] {
     .filter((t) => t.length > 1);
 }
 
-const STOP_WORDS = new Set([
-  "a", "an", "the", "in", "on", "at", "by", "to", "of", "or", "and",
-  "is", "it", "be", "as", "for",
-]);
-
 function meaningfulTokens(text: string): string[] {
-  return tokenize(text).filter((t) => !STOP_WORDS.has(t));
+  return tokenize(text).filter((t) => !STOP_WORDS.has(t) && !RU_STOP_WORDS.has(t));
+}
+
+export function sortAlphabetically(items: string[]): string[] {
+  return [...items].sort((a, b) =>
+    normalize(a).localeCompare(normalize(b), "en", { sensitivity: "base" })
+  );
 }
 
 function levenshtein(a: string, b: string): number {
@@ -48,10 +70,14 @@ function levenshtein(a: string, b: string): number {
 }
 
 function tokensMatchFuzzy(queryToken: string, targetToken: string): boolean {
+  if (queryToken === targetToken) return true;
+  if (queryToken.length < 3 || targetToken.length < 3) return false;
+
   if (targetToken.includes(queryToken) || queryToken.includes(targetToken)) {
     return true;
   }
-  if (queryToken.length < 4) return false;
+
+  if (queryToken.length < 4 || targetToken.length < 4) return false;
   return levenshtein(queryToken, targetToken) <= 1;
 }
 
@@ -64,9 +90,19 @@ function scoreMatch(query: string, target: string): number {
   if (t.includes(q)) return 800 + (q.length / t.length) * 100;
   if (q.includes(t)) return 750 + (t.length / q.length) * 100;
 
-  const queryTokens = tokenize(q);
-  const targetTokens = tokenize(t);
-  if (queryTokens.length === 0) return 0;
+  const queryTokens = meaningfulTokens(q);
+  const targetTokens = meaningfulTokens(t);
+  if (queryTokens.length === 0) {
+    const fallbackTokens = tokenize(q);
+    if (fallbackTokens.length === 0) return 0;
+    let matched = 0;
+    for (const qt of fallbackTokens) {
+      if (tokenize(t).some((tt) => tokensMatchFuzzy(qt, tt))) matched++;
+    }
+    const ratio = matched / fallbackTokens.length;
+    if (ratio < 0.35) return 0;
+    return ratio * 500 + matched * 20;
+  }
 
   let matched = 0;
   for (const qt of queryTokens) {
@@ -76,7 +112,11 @@ function scoreMatch(query: string, target: string): number {
   }
 
   const ratio = matched / queryTokens.length;
-  if (ratio < 0.4) return 0;
+  if (ratio < 0.35) return 0;
+
+  if (q.length >= 40 && !t.includes(q) && !q.includes(t) && ratio < 0.5) {
+    return 0;
+  }
 
   return ratio * 500 + matched * 20;
 }
@@ -102,9 +142,35 @@ function scoreCategoryMatch(query: string, categoryName: string): number {
   }
 
   const ratio = matched / queryTokens.length;
-  if (ratio < 0.6) return 0;
+  if (ratio < 0.55) return 0;
 
   return ratio * 2000 + matched * 100;
+}
+
+function buildFinalRoundCorrectAnswers(
+  query: string,
+  choices: { text: string; correct?: boolean }[],
+  categoryScore: number
+): string[] {
+  const allCorrect = choices
+    .filter((c) => c.correct)
+    .map((c) => stripMarkup(c.text));
+
+  const itemMatches = allCorrect
+    .map((text) => ({ text, score: scoreMatch(query, text) }))
+    .filter((item) => item.score >= FINAL_ITEM_MATCH_SCORE)
+    .sort((a, b) => b.score - a.score);
+
+  const bestItemScore = itemMatches[0]?.score ?? 0;
+  const categoryDominates =
+    categoryScore >= STRONG_CATEGORY_SCORE &&
+    categoryScore >= bestItemScore;
+
+  if (categoryDominates || itemMatches.length === 0) {
+    return sortAlphabetically(allCorrect);
+  }
+
+  return sortAlphabetically(itemMatches.map((item) => item.text));
 }
 
 function scoreChoiceMatch(
@@ -132,15 +198,39 @@ function scoreChoiceMatch(
   return best;
 }
 
-const STRONG_CATEGORY_SCORE = 1500;
-const STRONG_QUESTION_SCORE = 400;
+function pickTopResults<T extends { score: number }>(
+  items: T[],
+  getKey: (item: T) => string,
+  limit = MAX_SEARCH_RESULTS,
+  minScore = MIN_MATCH_SCORE
+): T[] {
+  const sorted = [...items]
+    .filter((item) => item.score >= minScore)
+    .sort((a, b) => b.score - a.score);
 
-function pickBest<T extends { score: number }>(items: T[]): T[] {
-  const best = items.sort((a, b) => b.score - a.score)[0];
-  return best ? [best] : [];
+  const seen = new Set<string>();
+  const results: T[] = [];
+
+  for (const item of sorted) {
+    const key = getKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    results.push(item);
+    if (results.length >= limit) break;
+  }
+
+  return results;
 }
 
-export function searchTrivia(data: GameData, query: string) {
+function filterByConfidence<T extends SearchResult>(results: T[]): T[] {
+  return results.filter((result) => getMatchConfidence(result) >= MIN_CONFIDENCE);
+}
+
+export function searchTrivia(
+  data: GameData,
+  query: string,
+  limit = MAX_SEARCH_RESULTS
+) {
   if (!query.trim()) return [];
 
   const ranked = data.trivia.map((question) => {
@@ -152,75 +242,57 @@ export function searchTrivia(data: GameData, query: string) {
       type: "trivia" as const,
       question,
       correctAnswer: correct ? stripMarkup(correct.text) : "—",
-      questionScore,
-      choiceScore,
       score: Math.max(questionScore, choiceScore),
     };
   });
 
-  const bestQuestion = ranked
-    .filter((r) => r.questionScore >= STRONG_QUESTION_SCORE)
-    .sort((a, b) => b.questionScore - a.questionScore)[0];
-
-  if (bestQuestion) {
-    return [{ ...bestQuestion, score: bestQuestion.questionScore }];
-  }
-
-  const bestChoice = ranked
-    .filter((r) => r.choiceScore > 0)
-    .sort((a, b) => b.choiceScore - a.choiceScore)[0];
-
-  if (bestChoice) {
-    return [{ ...bestChoice, score: bestChoice.choiceScore }];
-  }
-
-  return [];
+  return filterByConfidence(
+    pickTopResults(ranked, (item) => item.question.id, limit)
+  );
 }
 
-export function searchFinalRound(data: GameData, query: string) {
+export function searchFinalRound(
+  data: GameData,
+  query: string,
+  limit = MAX_SEARCH_RESULTS
+) {
   if (!query.trim()) return [];
 
   const ranked = data.finalRound.map((question) => {
     const categoryScore = scoreCategoryMatch(query, question.categoryName);
     const choiceScore = scoreChoiceMatch(query, question.choices);
-
-    const correctAnswers = question.choices
-      .filter((c) => c.correct)
-      .map((c) => stripMarkup(c.text));
-    const wrongAnswers = question.choices
-      .filter((c) => !c.correct)
-      .map((c) => stripMarkup(c.text));
+    const correctAnswers = buildFinalRoundCorrectAnswers(
+      query,
+      question.choices,
+      categoryScore
+    );
 
     return {
       type: "finalRound" as const,
       question,
       correctAnswers,
-      wrongAnswers,
-      categoryScore,
-      choiceScore,
+      wrongAnswers: question.choices
+        .filter((c) => !c.correct)
+        .map((c) => stripMarkup(c.text)),
+      score: Math.max(categoryScore, choiceScore),
     };
   });
 
-  const bestCategory = ranked
-    .filter((r) => r.categoryScore >= STRONG_CATEGORY_SCORE)
-    .sort((a, b) => b.categoryScore - a.categoryScore)[0];
-
-  if (bestCategory) {
-    return [{ ...bestCategory, score: bestCategory.categoryScore }];
-  }
-
-  const bestChoice = ranked
-    .filter((r) => r.choiceScore > 0)
-    .sort((a, b) => b.choiceScore - a.choiceScore)[0];
-
-  if (bestChoice) {
-    return [{ ...bestChoice, score: bestChoice.choiceScore }];
-  }
-
-  return [];
+  return filterByConfidence(
+    pickTopResults(
+      ranked,
+      (item) => item.question.id,
+      limit,
+      MIN_FINAL_ROUND_SCORE
+    )
+  );
 }
 
-export function searchSubjective(data: GameData, query: string) {
+export function searchSubjective(
+  data: GameData,
+  query: string,
+  limit = MAX_SEARCH_RESULTS
+) {
   if (!query.trim()) return [];
 
   const ranked = data.subjective.map((question) => {
@@ -243,41 +315,17 @@ export function searchSubjective(data: GameData, query: string) {
     return {
       type: "subjective" as const,
       question,
-      choices: question.choices.map((c) => stripMarkup(c.text)),
+      choices: sortAlphabetically(
+        question.choices.map((c) => stripMarkup(c.text))
+      ),
       introLines,
-      questionScore,
-      choiceScore,
-      introScore,
       score: Math.max(questionScore, choiceScore, introScore),
     };
   });
 
-  const bestQuestion = ranked
-    .filter((r) => r.questionScore >= STRONG_QUESTION_SCORE)
-    .sort((a, b) => b.questionScore - a.questionScore)[0];
-
-  if (bestQuestion) {
-    return [{ ...bestQuestion, score: bestQuestion.questionScore }];
-  }
-
-  const bestOther = ranked
-    .filter((r) => Math.max(r.choiceScore, r.introScore) > 0)
-    .sort(
-      (a, b) =>
-        Math.max(b.choiceScore, b.introScore) -
-        Math.max(a.choiceScore, a.introScore)
-    )[0];
-
-  if (bestOther) {
-    return [
-      {
-        ...bestOther,
-        score: Math.max(bestOther.choiceScore, bestOther.introScore),
-      },
-    ];
-  }
-
-  return [];
+  return filterByConfidence(
+    pickTopResults(ranked, (item) => item.question.id, limit)
+  );
 }
 
 function getVoVersions(entry: VoEntry) {
@@ -318,7 +366,11 @@ function scoreVoEntry(
   return score > 0 ? { score, matchedSubtitle } : { score: 0 };
 }
 
-export function searchVo(data: GameData, query: string) {
+export function searchVo(
+  data: GameData,
+  query: string,
+  limit = MAX_SEARCH_RESULTS
+) {
   if (!query.trim()) return [];
 
   const ranked = data.vo
@@ -336,9 +388,56 @@ export function searchVo(data: GameData, query: string) {
         score,
       };
     })
-    .filter((r) => r.score > 0);
+    .filter((item) => item.score > 0);
 
-  return pickBest(ranked);
+  return filterByConfidence(
+    pickTopResults(ranked, (item) => item.entry.id, limit)
+  );
+}
+
+const MODE_HOTKEY_INDEX: Record<QuestionMode, number> = {
+  trivia: 1,
+  finalRound: 2,
+  subjective: 3,
+  vo: 4,
+};
+
+export function findSuggestedMode(
+  data: GameData,
+  query: string,
+  currentMode: QuestionMode
+): { mode: QuestionMode; confidence: number; hotkey: number } | null {
+  if (!query.trim()) return null;
+
+  const searchByMode: Record<
+    QuestionMode,
+    (d: GameData, q: string) => SearchResult[]
+  > = {
+    trivia: searchTrivia,
+    finalRound: searchFinalRound,
+    subjective: searchSubjective,
+    vo: searchVo,
+  };
+
+  const currentTop = searchByMode[currentMode](data, query)[0];
+  const currentConfidence = currentTop ? getMatchConfidence(currentTop) : 0;
+  if (currentConfidence >= 30) return null;
+
+  let best: { mode: QuestionMode; confidence: number } | null = null;
+
+  for (const mode of Object.keys(searchByMode) as QuestionMode[]) {
+    if (mode === currentMode) continue;
+    const top = searchByMode[mode](data, query)[0];
+    if (!top) continue;
+    const confidence = getMatchConfidence(top);
+    if (confidence < 35) continue;
+    if (!best || confidence > best.confidence) {
+      best = { mode, confidence };
+    }
+  }
+
+  if (!best) return null;
+  return { ...best, hotkey: MODE_HOTKEY_INDEX[best.mode] };
 }
 
 export function isExactMatch(result: SearchResult): boolean {
@@ -352,28 +451,17 @@ export function isExactMatch(result: SearchResult): boolean {
   }
 }
 
-export function searchAuto(
-  data: GameData,
-  query: string
-): AutoSearchResult | null {
-  if (!query.trim()) return null;
-
-  const candidates: AutoSearchResult[] = [];
-
-  for (const result of searchTrivia(data, query)) {
-    candidates.push({ mode: "trivia", result, exact: isExactMatch(result) });
+export function getMatchConfidence(result: SearchResult): number {
+  const score = result.score;
+  switch (result.type) {
+    case "trivia":
+    case "subjective":
+      return Math.min(100, Math.max(5, Math.round((score / 1000) * 100)));
+    case "finalRound":
+    case "vo":
+      if (score >= 8500) {
+        return Math.min(100, Math.round(88 + (score - 8500) / 300));
+      }
+      return Math.min(87, Math.max(5, Math.round((score / 8500) * 87)));
   }
-  for (const result of searchFinalRound(data, query)) {
-    candidates.push({ mode: "finalRound", result, exact: isExactMatch(result) });
-  }
-  for (const result of searchSubjective(data, query)) {
-    candidates.push({ mode: "subjective", result, exact: isExactMatch(result) });
-  }
-  for (const result of searchVo(data, query)) {
-    candidates.push({ mode: "vo", result, exact: isExactMatch(result) });
-  }
-
-  if (candidates.length === 0) return null;
-
-  return candidates.sort((a, b) => b.result.score - a.result.score)[0];
 }

@@ -6,7 +6,6 @@ const CONTENT_SUFFIX = ["TMP3", "Content", "TMP3", "LooseData", "Content"];
 
 const GAME_INSTALLS = [
   { folder: "Trivia Murder Party 3 Demo", edition: "demo", label: "Demo" },
-  { folder: "Trivia Murder Party 3", edition: "full", label: "Full edition" },
 ];
 
 async function pathExists(path) {
@@ -92,6 +91,5 @@ export async function findSteamInstalls() {
 
 export async function getBestSteamPath() {
   const installs = await findSteamInstalls();
-  const full = installs.find((i) => i.edition === "full");
-  return full?.contentPath ?? installs[0]?.contentPath ?? null;
+  return installs[0]?.contentPath ?? null;
 }

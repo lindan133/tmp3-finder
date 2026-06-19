@@ -20,9 +20,15 @@ jobs:
           node-version: 22
           cache: npm
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - run: npm ci
-      - run: npm run build
-      - run: npx electron-builder --win portable nsis --config.directories.output=release
+      - run: npm test
+      - run: npm run dist
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2

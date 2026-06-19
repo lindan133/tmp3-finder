@@ -2,31 +2,30 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AppLanguage,
   AppSettings,
-  AutoSearchResult,
   GameData,
-  ManualQuestionMode,
   PathCheckResult,
   QuestionMode,
   SearchResult,
-  SteamInstall,
 } from "./types";
 import {
   checkPath,
+  checkDatabaseStale,
   copyText,
   fetchConfig,
-  fetchSteamInstalls,
   loadGameData,
   pickFolder,
   openExternal,
   saveSettings,
   subscribeFocusSearch,
+  subscribeReloadDatabase,
   subscribeSettingsChanged,
+  subscribeWindowFocus,
 } from "./api";
-import { addSearchHistory, clearSearchHistory, getSearchHistory } from "./history";
 import { HighlightedText } from "./highlight";
 import {
+  findSuggestedMode,
+  getMatchConfidence,
   isExactMatch,
-  searchAuto,
   searchFinalRound,
   searchSubjective,
   searchTrivia,
@@ -41,9 +40,9 @@ import { getResultCopyText } from "./result-text";
 import { getVoHint } from "./vo-hints";
 import { APP_NAME, APP_VERSION } from "./version";
 import { I18nProvider, createTranslator, useI18n } from "./i18n/context";
+import { Onboarding } from "./Onboarding";
 
 const MODES: QuestionMode[] = [
-  "auto",
   "trivia",
   "finalRound",
   "subjective",
@@ -57,6 +56,33 @@ function useDebounce<T>(value: T, delay: number): T {
     return () => clearTimeout(id);
   }, [value, delay]);
   return debounced;
+}
+
+function shouldIgnoreCardClick(target: EventTarget | null): boolean {
+  return Boolean(
+    target instanceof HTMLElement &&
+      target.closest(".copyable, details, summary, button, a")
+  );
+}
+
+function MatchBadge({
+  exact,
+  confidence,
+}: {
+  exact?: boolean;
+  confidence: number;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="card-badges">
+      <span className={`match-badge${exact ? " exact" : " fuzzy"}`}>
+        {exact ? t("exactMatch") : t("fuzzyMatch")}
+      </span>
+      <span className="confidence-badge">
+        {t("matchConfidence", { value: confidence })}
+      </span>
+    </div>
+  );
 }
 
 function Copyable({
@@ -94,16 +120,28 @@ function TriviaCard({
   result,
   query,
   exact,
+  onCopy,
 }: {
   result: Extract<SearchResult, { type: "trivia" }>;
   query: string;
   exact?: boolean;
+  onCopy: () => void;
 }) {
   const { t } = useI18n();
   const { question, correctAnswer } = result;
 
   return (
-    <article className={`card ${exact ? "exact-match" : ""}`}>
+    <article
+      className={`card card-clickable ${exact ? "exact-match" : "fuzzy-match"}`}
+      title={t("clickToCopyCard")}
+      onClick={(e) => {
+        if (shouldIgnoreCardClick(e.target)) return;
+        onCopy();
+      }}
+    >
+      <div className="card-head">
+        <MatchBadge exact={exact} confidence={getMatchConfidence(result)} />
+      </div>
       <p className="question">
         <HighlightedText text={question.question} query={query} />
       </p>
@@ -127,16 +165,28 @@ function FinalRoundCard({
   result,
   query,
   exact,
+  onCopy,
 }: {
   result: Extract<SearchResult, { type: "finalRound" }>;
   query: string;
   exact?: boolean;
+  onCopy: () => void;
 }) {
   const { t } = useI18n();
   const { question, correctAnswers } = result;
 
   return (
-    <article className={`card ${exact ? "exact-match" : ""}`}>
+    <article
+      className={`card card-clickable ${exact ? "exact-match" : "fuzzy-match"}`}
+      title={t("clickToCopyCard")}
+      onClick={(e) => {
+        if (shouldIgnoreCardClick(e.target)) return;
+        onCopy();
+      }}
+    >
+      <div className="card-head">
+        <MatchBadge exact={exact} confidence={getMatchConfidence(result)} />
+      </div>
       <p className="category">
         <HighlightedText text={question.categoryName} query={query} />
       </p>
@@ -156,16 +206,28 @@ function SubjectiveCard({
   result,
   query,
   exact,
+  onCopy,
 }: {
   result: Extract<SearchResult, { type: "subjective" }>;
   query: string;
   exact?: boolean;
+  onCopy: () => void;
 }) {
   const { t } = useI18n();
   const { question, choices, introLines } = result;
 
   return (
-    <article className={`card ${exact ? "exact-match" : ""}`}>
+    <article
+      className={`card card-clickable ${exact ? "exact-match" : "fuzzy-match"}`}
+      title={t("clickToCopyCard")}
+      onClick={(e) => {
+        if (shouldIgnoreCardClick(e.target)) return;
+        onCopy();
+      }}
+    >
+      <div className="card-head">
+        <MatchBadge exact={exact} confidence={getMatchConfidence(result)} />
+      </div>
       {introLines.length > 0 && (
         <p className="hint">
           <HighlightedText text={introLines.join(" / ")} query={query} />
@@ -191,17 +253,29 @@ function VoCard({
   result,
   query,
   exact,
+  onCopy,
 }: {
   result: Extract<SearchResult, { type: "vo" }>;
   query: string;
   exact?: boolean;
+  onCopy: () => void;
 }) {
   const { t, messages } = useI18n();
   const { entry, subtitles, matchedSubtitle } = result;
   const hint = getVoHint(entry.name, messages.voHints);
 
   return (
-    <article className={`card ${exact ? "exact-match" : ""}`}>
+    <article
+      className={`card card-clickable ${exact ? "exact-match" : "fuzzy-match"}`}
+      title={t("clickToCopyCard")}
+      onClick={(e) => {
+        if (shouldIgnoreCardClick(e.target)) return;
+        onCopy();
+      }}
+    >
+      <div className="card-head">
+        <MatchBadge exact={exact} confidence={getMatchConfidence(result)} />
+      </div>
       <p className="vo-name">
         <HighlightedText text={entry.name} query={query} />
       </p>
@@ -231,7 +305,8 @@ function VoCard({
 function renderResult(
   result: SearchResult,
   query: string,
-  exact?: boolean
+  exact: boolean | undefined,
+  onCopy: () => void
 ) {
   switch (result.type) {
     case "trivia":
@@ -241,6 +316,7 @@ function renderResult(
           result={result}
           query={query}
           exact={exact}
+          onCopy={onCopy}
         />
       );
     case "finalRound":
@@ -250,6 +326,7 @@ function renderResult(
           result={result}
           query={query}
           exact={exact}
+          onCopy={onCopy}
         />
       );
     case "subjective":
@@ -259,21 +336,27 @@ function renderResult(
           result={result}
           query={query}
           exact={exact}
+          onCopy={onCopy}
         />
       );
     case "vo":
       return (
-        <VoCard key={result.entry.id} result={result} query={query} exact={exact} />
+        <VoCard
+          key={result.entry.id}
+          result={result}
+          query={query}
+          exact={exact}
+          onCopy={onCopy}
+        />
       );
   }
 }
 
 export default function App() {
-  const [mode, setMode] = useState<QuestionMode>("auto");
+  const [mode, setMode] = useState<QuestionMode>("trivia");
   const [query, setQuery] = useState("");
   const [data, setData] = useState<GameData | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [steamInstalls, setSteamInstalls] = useState<SteamInstall[]>([]);
   const [defaultPath, setDefaultPath] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -281,18 +364,24 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pathInput, setPathInput] = useState("");
   const [pathCheck, setPathCheck] = useState<PathCheckResult | null>(null);
-  const [history, setHistory] = useState<string[]>(() => getSearchHistory());
   const [hotkeyAssignFailed, setHotkeyAssignFailed] = useState(false);
   const [reloadNotice, setReloadNotice] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState(false);
+  const [databaseStale, setDatabaseStale] = useState(false);
+  const [loadedFingerprint, setLoadedFingerprint] = useState<string | null>(null);
+  const [footerOpen, setFooterOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastExactRef = useRef("");
   const lastAutoCopyRef = useRef("");
+  const savedContentPathRef = useRef("");
+  const reloadNoticeTimerRef = useRef<number | null>(null);
+  const loadingRef = useRef(false);
 
   const debouncedQuery = useDebounce(query, 120);
+  const debouncedPathInput = useDebounce(pathInput, 400);
   const language = settings?.language ?? "en";
   const i18n = useMemo(() => createTranslator(language), [language]);
-  const { t, compactMode, placeholder, countLabel, mode: modeLabel } = i18n;
+  const { t, compactMode, placeholder, countLabel } = i18n;
 
   const formatPathCheck = useCallback(
     (result: PathCheckResult): string[] => {
@@ -317,29 +406,66 @@ export default function App() {
   );
 
   const loadData = useCallback(async (path?: string, forceRefresh = false) => {
+    loadingRef.current = true;
     setLoading(true);
     setError(null);
     try {
-      setData(await loadGameData(path, forceRefresh));
+      const nextData = await loadGameData(path, forceRefresh);
+      setData(nextData);
+      setLoadedFingerprint(nextData.loadInfo.fingerprint ?? null);
+      setDatabaseStale(false);
     } catch {
       setError(createTranslator(settings?.language ?? "en").t("errorLoad"));
       setData(null);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
   }, [settings?.language]);
 
+  const runStaleCheck = useCallback(
+    async (contentPath?: string, fingerprint?: string | null) => {
+      const path = contentPath || settings?.contentPath;
+      const currentFingerprint = fingerprint ?? loadedFingerprint;
+      if (!path || !currentFingerprint) {
+        setDatabaseStale(false);
+        return;
+      }
+      const result = await checkDatabaseStale(path, currentFingerprint);
+      setDatabaseStale(result.stale);
+      if (result.fingerprint && !result.stale) {
+        setLoadedFingerprint(result.fingerprint);
+      }
+    },
+    [settings?.contentPath, loadedFingerprint]
+  );
+
+  const applyContentPath = useCallback(
+    async (path: string) => {
+      if (!path || path === savedContentPathRef.current) return;
+
+      const check = await checkPath(path);
+      setPathCheck(check);
+      if (!check.ok) return;
+
+      savedContentPathRef.current = path;
+      const next = await saveSettings({ contentPath: path });
+      setSettings(next);
+      setPathInput(path);
+      setError(null);
+      await loadData(path);
+    },
+    [loadData]
+  );
+
   useEffect(() => {
     (async () => {
       try {
-        const [config, installs] = await Promise.all([
-          fetchConfig(),
-          fetchSteamInstalls(),
-        ]);
+        const config = await fetchConfig();
         setSettings(config.settings);
         setDefaultPath(config.defaultPath);
         setPathInput(config.contentPath);
-        setSteamInstalls(installs);
+        savedContentPathRef.current = config.contentPath;
         setPathCheck(await checkPath(config.contentPath));
         await loadData(config.contentPath);
       } catch {
@@ -351,13 +477,20 @@ export default function App() {
 
   useEffect(() => {
     inputRef.current?.focus();
-    const unsubFocus = subscribeFocusSearch(() => inputRef.current?.focus());
+    const unsubFocus = subscribeFocusSearch(() => {
+      inputRef.current?.focus();
+      void runStaleCheck();
+    });
+    const unsubWindowFocus = subscribeWindowFocus(() => {
+      void runStaleCheck();
+    });
     const unsubSettings = subscribeSettingsChanged((next) => setSettings(next));
     return () => {
       unsubFocus?.();
+      unsubWindowFocus?.();
       unsubSettings?.();
     };
-  }, []);
+  }, [runStaleCheck]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings?.theme ?? "dark";
@@ -368,8 +501,52 @@ export default function App() {
   }, [language]);
 
   useEffect(() => {
-    if (!showSettings) setReloadNotice(null);
-  }, [showSettings]);
+    if (!debouncedPathInput.trim()) {
+      setPathCheck(null);
+      return;
+    }
+    void checkPath(debouncedPathInput).then(setPathCheck);
+  }, [debouncedPathInput]);
+
+  useEffect(() => {
+    if (!pathCheck?.ok) return;
+    if (pathCheck.contentPath === savedContentPathRef.current) return;
+    void applyContentPath(pathCheck.contentPath);
+  }, [pathCheck, applyContentPath]);
+
+  const handleReloadData = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+
+    setError(null);
+    setReloadNotice(null);
+    setDatabaseStale(false);
+    try {
+      await loadData(pathInput || settings?.contentPath, true);
+      setReloadNotice(t("databaseUpdated"));
+      if (reloadNoticeTimerRef.current) {
+        window.clearTimeout(reloadNoticeTimerRef.current);
+      }
+      reloadNoticeTimerRef.current = window.setTimeout(() => {
+        setReloadNotice(null);
+        reloadNoticeTimerRef.current = null;
+      }, 2500);
+    } catch {
+      setReloadNotice(null);
+    }
+  }, [loadData, pathInput, settings?.contentPath, t]);
+
+  useEffect(() => {
+    const unsubReload = subscribeReloadDatabase(() => {
+      void handleReloadData();
+    });
+    return () => {
+      unsubReload?.();
+      if (reloadNoticeTimerRef.current) {
+        window.clearTimeout(reloadNoticeTimerRef.current);
+      }
+    };
+  }, [handleReloadData]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -386,22 +563,26 @@ export default function App() {
         inputRef.current?.focus();
       }
       const idx = Number(e.key);
-      if (e.ctrlKey && idx >= 1 && idx <= 5) {
+      if (e.ctrlKey && idx >= 1 && idx <= 4) {
         e.preventDefault();
         setMode(MODES[idx - 1]);
+      }
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "r"
+      ) {
+        e.preventDefault();
+        void handleReloadData();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [sidebarOpen, showSettings]);
+  }, [sidebarOpen, showSettings, handleReloadData]);
 
-  const autoResult = useMemo((): AutoSearchResult | null => {
-    if (!data || !debouncedQuery.trim() || mode !== "auto") return null;
-    return searchAuto(data, debouncedQuery);
-  }, [data, debouncedQuery, mode]);
-
-  const manualResults = useMemo((): SearchResult[] => {
-    if (!data || !debouncedQuery.trim() || mode === "auto") return [];
+  const activeResults = useMemo((): SearchResult[] => {
+    if (!data || !debouncedQuery.trim()) return [];
     switch (mode) {
       case "trivia":
         return searchTrivia(data, debouncedQuery);
@@ -411,28 +592,44 @@ export default function App() {
         return searchSubjective(data, debouncedQuery);
       case "vo":
         return searchVo(data, debouncedQuery);
-      default:
-        return [];
     }
   }, [data, debouncedQuery, mode]);
 
-  const activeResults =
-    mode === "auto"
-      ? autoResult
-        ? [autoResult.result]
-        : []
-      : manualResults;
+  const suggestedMode = useMemo(() => {
+    if (!data || !debouncedQuery.trim()) return null;
+    return findSuggestedMode(data, debouncedQuery, mode);
+  }, [data, debouncedQuery, mode]);
 
-  const isExact =
-    mode === "auto"
-      ? Boolean(autoResult?.exact)
-      : Boolean(manualResults[0] && isExactMatch(manualResults[0]));
+  const isExact = Boolean(activeResults[0] && isExactMatch(activeResults[0]));
+
+  const copyTopResult = useCallback(async () => {
+    const result = activeResults[0];
+    if (!result) return;
+    const text = getResultCopyText(result);
+    if (!text) return;
+    await copyText(text);
+    setCopiedNotice(true);
+    window.setTimeout(() => setCopiedNotice(false), 1400);
+  }, [activeResults]);
+
+  const copyResult = useCallback(async (result: SearchResult) => {
+    const text = getResultCopyText(result);
+    if (!text) return;
+    await copyText(text);
+    setCopiedNotice(true);
+    window.setTimeout(() => setCopiedNotice(false), 1400);
+  }, []);
 
   useEffect(() => {
-    if (!debouncedQuery.trim() || activeResults.length === 0) return;
-    addSearchHistory(debouncedQuery);
-    setHistory(getSearchHistory());
-  }, [debouncedQuery, activeResults.length]);
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || !e.ctrlKey || showSettings) return;
+      if (activeResults.length === 0) return;
+      e.preventDefault();
+      void copyTopResult();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [showSettings, activeResults.length, copyTopResult]);
 
   useEffect(() => {
     if (!settings?.soundOnMatch || !debouncedQuery.trim()) return;
@@ -466,28 +663,18 @@ export default function App() {
     activeResults,
   ]);
 
-  const handlePathChange = async (nextPath: string) => {
-    setPathInput(nextPath);
-    setPathCheck(await checkPath(nextPath));
+  const handlePathInput = (value: string) => {
+    setPathInput(value);
   };
 
   const handleBrowse = async () => {
     const folder = await pickFolder();
-    if (folder) await handlePathChange(folder);
+    if (folder) handlePathInput(folder);
   };
 
-  const handleSavePath = async () => {
-    const check = await checkPath(pathInput);
-    setPathCheck(check);
-    if (!check.ok) {
-      setError(t("errorPathInvalid"));
-      return;
-    }
-    const next = await saveSettings({ contentPath: pathInput });
+  const handleCompleteOnboarding = async () => {
+    const next = await saveSettings({ onboardingComplete: true });
     setSettings(next);
-    setShowSettings(false);
-    setError(null);
-    await loadData(pathInput);
   };
 
   const handleSettingToggle = async (
@@ -518,32 +705,10 @@ export default function App() {
     setSettings(next);
   };
 
-  const handleReloadData = async () => {
-    setError(null);
-    setReloadNotice(null);
-    try {
-      await loadData(pathInput || settings?.contentPath, true);
-      setReloadNotice(t("databaseUpdated"));
-    } catch {
-      setReloadNotice(null);
-    }
-  };
-
   const handleThemeToggle = async () => {
     const nextTheme = settings?.theme === "light" ? "dark" : "light";
     const next = await saveSettings({ theme: nextTheme });
     setSettings(next);
-  };
-
-  const handleSteamInstall = async (install: SteamInstall) => {
-    setPathInput(install.contentPath);
-    const check = await checkPath(install.contentPath);
-    setPathCheck(check);
-    if (!check.ok) return;
-    const next = await saveSettings({ contentPath: install.contentPath });
-    setSettings(next);
-    setError(null);
-    await loadData(install.contentPath);
   };
 
   const handleModeSelect = (nextMode: QuestionMode) => {
@@ -552,15 +717,25 @@ export default function App() {
     inputRef.current?.focus();
   };
 
-  const countMode: ManualQuestionMode =
-    mode === "auto" ? (autoResult?.mode ?? "trivia") : mode;
-  const modeCount = data ? data.counts[countMode] : 0;
+  const modeCount = data ? data.counts[mode] : 0;
   const editionLabel =
     data?.loadInfo.edition === "full" ? t("editionFull") : t("editionDemo");
+  const showOnboarding = Boolean(settings && !settings.onboardingComplete);
 
   return (
     <I18nProvider language={language}>
     <div className={`app compact${showSettings ? " settings-open" : ""}`}>
+      {showOnboarding && (
+        <Onboarding
+          pathInput={pathInput}
+          pathCheck={pathCheck}
+          onPathInput={handlePathInput}
+          onBrowse={() => void handleBrowse()}
+          onUseDefaultPath={() => handlePathInput(defaultPath)}
+          onComplete={() => void handleCompleteOnboarding()}
+          loading={loading}
+        />
+      )}
       <header>
         {sidebarOpen && (
           <>
@@ -588,6 +763,7 @@ export default function App() {
                 </button>
               ))}
               <div className="sidebar-footer">
+                <p className="sidebar-hotkeys">{t("modeHotkeysHint")}</p>
                 <button
                   type="button"
                   className={`sidebar-item${showSettings ? " active" : ""}`}
@@ -618,6 +794,9 @@ export default function App() {
             </span>
           </button>
           <span className="compact-mode-title">{compactMode(mode)}</span>
+          <span className="compact-hotkeys" title={t("modeHotkeysHint")}>
+            Ctrl+1–4
+          </span>
           <button
             type="button"
             className={`compact-pin-btn${settings?.alwaysOnTop ? " active" : ""}`}
@@ -667,33 +846,11 @@ export default function App() {
               </button>
             </div>
 
-            <p className="settings-section">{t("steamInstalls")}</p>
-            {steamInstalls.length > 0 ? (
-              <div className="install-list">
-                {steamInstalls.map((install) => (
-                  <button
-                    key={install.contentPath}
-                    type="button"
-                    className={`btn btn-secondary install-btn${
-                      pathInput === install.contentPath ? " active" : ""
-                    }`}
-                    onClick={() => handleSteamInstall(install)}
-                  >
-                    {install.edition === "full"
-                      ? t("editionFull")
-                      : t("editionDemo")}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="settings-note">{t("steamNotFound")}</p>
-            )}
-
             <label>{t("contentPath")}</label>
             <div className="path-row">
               <input
                 value={pathInput}
-                onChange={(e) => handlePathChange(e.target.value)}
+                onChange={(e) => handlePathInput(e.target.value)}
               />
               <button type="button" className="btn btn-secondary" onClick={handleBrowse}>
                 {t("browse")}
@@ -761,12 +918,16 @@ export default function App() {
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() => handlePathChange(defaultPath)}
+                onClick={() => handlePathInput(defaultPath)}
               >
                 {t("bestSteamPath")}
               </button>
-              <button type="button" className="btn btn-primary" onClick={handleSavePath}>
-                {t("save")}
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setShowSettings(false)}
+              >
+                {t("done")}
               </button>
             </div>
 
@@ -787,45 +948,46 @@ export default function App() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && activeResults.length > 0) {
+                  e.preventDefault();
+                  void copyTopResult();
+                }
+              }}
               placeholder={placeholder(mode)}
+              title={`${t("enterToCopy")} · ${t("reloadHotkeyHint")}`}
               autoComplete="off"
               spellCheck={false}
             />
 
-            {history.length > 0 && (
-              <div className="history">
-                {history.map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    className="btn btn-secondary history-item"
-                    onClick={() => setQuery(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
+            {databaseStale && (
+              <div className="stale-banner">
+                <span>{t("databaseStale")}</span>
                 <button
                   type="button"
-                  className="history-clear"
-                  onClick={() => {
-                    clearSearchHistory();
-                    setHistory([]);
-                  }}
+                  className="btn btn-secondary stale-reload-btn"
+                  onClick={() => void handleReloadData()}
+                  disabled={loading}
                 >
-                  ×
+                  {t("databaseStaleReload")}
                 </button>
               </div>
             )}
 
             <div className="status">
-              {loading && <span>{t("loadingStatus")}</span>}
+              {loading && (
+                <span>{showSettings ? t("reloadingJson") : t("loadingStatus")}</span>
+              )}
               {!loading && error && <span className="err">{error}</span>}
+              {!loading && !error && reloadNotice && (
+                <span className="reload-notice">{reloadNotice}</span>
+              )}
               {!loading && !error && data && (
                 <>
                   <span className="ok-dot" />
                   <span>
                     {editionLabel} · {t("inDatabase")} {modeCount}{" "}
-                    {countLabel(countMode)}
+                    {countLabel(mode)}
                     {data.loadInfo.fromCache && (
                       <span className="cache-badge"> · {t("cache")}</span>
                     )}
@@ -837,14 +999,10 @@ export default function App() {
                   {activeResults.length > 0 ? (
                     <>
                       {t("foundCount", { count: activeResults.length })}
-                      {mode === "auto" && autoResult && (
-                        <>
-                          {" "}
-                          · {t("modeLabel")}: {modeLabel(autoResult.mode)}
-                        </>
-                      )}
-                      {isExact && (
+                      {isExact ? (
                         <span className="exact-badge">{t("exactMatch")}</span>
+                      ) : (
+                        <span className="fuzzy-badge">{t("fuzzyMatch")}</span>
                       )}
                       {copiedNotice && (
                         <span className="copy-badge">{t("copiedBadge")}</span>
@@ -870,18 +1028,31 @@ export default function App() {
 
       {!showSettings && (
         <main>
-          {mode === "auto" && autoResult && (
-            <p className="auto-detected">
-              {t("autoModeDetected", { mode: modeLabel(autoResult.mode) })}
-            </p>
+          {suggestedMode && (
+            <div className="mode-hint-banner">
+              <span>
+                {t("tryOtherMode", {
+                  mode: compactMode(suggestedMode.mode),
+                  confidence: suggestedMode.confidence,
+                  hotkey: suggestedMode.hotkey,
+                })}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary mode-hint-btn"
+                onClick={() => setMode(suggestedMode.mode)}
+              >
+                {compactMode(suggestedMode.mode)}
+              </button>
+            </div>
           )}
           {activeResults.map((r) =>
-            renderResult(r, debouncedQuery, isExact)
+            renderResult(r, debouncedQuery, isExactMatch(r), () => void copyResult(r))
           )}
         </main>
       )}
 
-      {!showSettings && (
+      {!showSettings && footerOpen && (
         <footer className="app-footer">
         <p>
           Made with <span aria-hidden>❤️</span> by the{" "}
@@ -896,6 +1067,16 @@ export default function App() {
           </a>
         </p>
       </footer>
+      )}
+
+      {!showSettings && (
+        <button
+          type="button"
+          className="footer-toggle"
+          onClick={() => setFooterOpen((open) => !open)}
+        >
+          {footerOpen ? t("footerHide") : t("footerShow")}
+        </button>
       )}
     </div>
     </I18nProvider>
