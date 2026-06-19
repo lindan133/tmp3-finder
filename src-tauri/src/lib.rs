@@ -1,6 +1,8 @@
 mod data;
 mod hotkey;
 mod steam;
+mod tray;
+mod updater;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -8,11 +10,11 @@ use std::time::{Duration, Instant};
 use data::{AppConfig, AppSettings, DataService, PathCheckResult, StaleResult, DEFAULT_HOTKEY};
 use serde_json::Value;
 use steam::find_steam_installs;
-use tauri::{
-    AppHandle, Emitter, Manager, State, WebviewWindow,
-};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent};
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_updater::UpdaterExt;
 
 struct AppState {
     data: DataService,
@@ -20,7 +22,7 @@ struct AppState {
     resize_debounce: Mutex<Option<Instant>>,
 }
 
-fn toggle_main_window(app: &AppHandle) {
+pub(crate) fn toggle_main_window(app: &AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
@@ -39,6 +41,24 @@ fn toggle_main_window(app: &AppHandle) {
     let _ = window.emit("focus-search", ());
 }
 
+pub(crate) fn show_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    let _ = window.emit("focus-search", ());
+}
+
+fn theme_background(theme: &str) -> (u8, u8, u8) {
+    if theme == "light" {
+        (248, 248, 250)
+    } else {
+        (18, 18, 22)
+    }
+}
+
 fn apply_window_settings(window: &WebviewWindow, settings: &AppSettings) {
     let _ = window.set_always_on_top(settings.always_on_top);
 
@@ -47,6 +67,30 @@ fn apply_window_settings(window: &WebviewWindow, settings: &AppSettings) {
             width: width as f64,
             height: height as f64,
         }));
+    }
+
+    let opacity = if settings.always_on_top {
+        settings.window_opacity
+    } else {
+        100
+    };
+    let alpha = (opacity as f64 / 100.0).clamp(0.7, 1.0);
+    let (r, g, b) = theme_background(&settings.theme);
+    let alpha_byte = (alpha * 255.0).round() as u8;
+    let _ = window.set_background_color(Some(tauri::window::Color(
+        r, g, b, alpha_byte,
+    )));
+}
+
+fn apply_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    if enabled {
+        app.autolaunch()
+            .enable()
+            .map_err(|e| e.to_string())
+    } else {
+        app.autolaunch()
+            .disable()
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -124,6 +168,8 @@ async fn save_settings(
         .get("hotkey")
         .and_then(|v| v.as_str())
         .is_some();
+    let autostart_changed = partial.get("startWithWindows").is_some();
+    let language_changed = partial.get("language").is_some();
 
     if hotkey_changed {
         let next_hotkey = partial
@@ -146,6 +192,18 @@ async fn save_settings(
     }
 
     let settings = state.data.save_settings(&partial)?;
+
+    if autostart_changed {
+        if let Err(err) = apply_autostart(&app, settings.start_with_windows) {
+            log::warn!("Autostart update failed: {err}");
+        }
+    }
+
+    if language_changed {
+        if let Err(err) = tray::update_tray_language(&app, &settings.language) {
+            log::warn!("Tray language update failed: {err}");
+        }
+    }
 
     if let Some(window) = app.get_webview_window("main") {
         apply_window_settings(&window, &settings);
@@ -214,11 +272,34 @@ async fn open_external(url: String) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+async fn check_for_updates(app: AppHandle) -> Result<updater::UpdateInfo, String> {
+    if let Ok(updater) = app.updater_builder().build() {
+        if let Ok(Some(update)) = updater.check().await {
+            return Ok(updater::UpdateInfo {
+                current_version: env!("CARGO_PKG_VERSION").to_string(),
+                latest_version: Some(update.version),
+                update_available: true,
+                release_url: "https://github.com/lindan133/tmp3-finder/releases/latest".to_string(),
+                release_notes: update.body,
+            });
+        }
+    }
+
+    updater::check_github_release(env!("CARGO_PKG_VERSION")).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![] as Vec<&str>),
+        ))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -249,25 +330,45 @@ pub fn run() {
             let settings = data.load_settings();
             let hotkey = settings.hotkey.clone();
 
+            if settings.start_with_windows {
+                let _ = apply_autostart(app.handle(), true);
+            }
+
             app.manage(AppState {
                 data,
                 hotkey: Mutex::new(hotkey.clone()),
                 resize_debounce: Mutex::new(None),
             });
 
+            if let Err(err) = tray::setup_tray(app.handle(), &settings.language) {
+                log::warn!("Tray icon unavailable: {err}");
+            }
+
             let app_handle = app.handle().clone();
             if let Some(window) = app.get_webview_window("main") {
                 apply_window_settings(&window, &settings);
 
+                let settings_for_close = settings.clone();
                 let resize_app = app_handle.clone();
                 window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::Resized(_) = event {
-                        if let Some(state) = resize_app.try_state::<AppState>() {
-                            schedule_resize_save(resize_app.clone(), &state);
+                    match event {
+                        WindowEvent::Resized(_) => {
+                            if let Some(state) = resize_app.try_state::<AppState>() {
+                                schedule_resize_save(resize_app.clone(), &state);
+                            }
                         }
-                    }
-                    if let tauri::WindowEvent::Focused(true) = event {
-                        let _ = resize_app.emit("window-focus", ());
+                        WindowEvent::Focused(true) => {
+                            let _ = resize_app.emit("window-focus", ());
+                        }
+                        WindowEvent::CloseRequested { api, .. } => {
+                            if settings_for_close.minimize_to_tray {
+                                api.prevent_close();
+                                if let Some(window) = resize_app.get_webview_window("main") {
+                                    let _ = window.hide();
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 });
             }
@@ -287,6 +388,7 @@ pub fn run() {
             get_steam_installs,
             pick_folder,
             open_external,
+            check_for_updates,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

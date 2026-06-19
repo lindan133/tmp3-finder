@@ -6,10 +6,12 @@ dist/
 release/
 src-tauri/target/
 
-# Local user config & cache (Electron userData)
+# Local user config & cache
 config.json
 .cache/
-electron/.cache/
+
+# Tauri updater / signing (never commit private keys)
+src-tauri/.signing/*.key
 
 # TypeScript / Vite
 *.tsbuildinfo
@@ -37,6 +39,6 @@ Desktop.ini
 *.log
 npm-debug.log*
 
-# Electron builder temp
+# Temp
 *.tmp/
 win-unpacked/

@@ -1,5 +1,9 @@
 export type QuestionMode = "trivia" | "finalRound" | "subjective" | "vo";
 
+export type CopyFormat = "answerOnly" | "questionAndAnswer";
+
+export type TriviaDifficultyFilter = "all" | "easy" | "medium" | "hard";
+
 export interface Choice {
   text: string;
   correct?: boolean;
@@ -85,6 +89,7 @@ export interface TriviaSearchResult {
   type: "trivia";
   question: TriviaQuestion;
   correctAnswer: string;
+  matchedChoice?: string;
   score: number;
 }
 
@@ -92,6 +97,8 @@ export interface FinalRoundSearchResult {
   type: "finalRound";
   question: FinalRoundQuestion;
   correctAnswers: string[];
+  matchedAnswers: string[];
+  isItemSearch: boolean;
   wrongAnswers: string[];
   score: number;
 }
@@ -100,6 +107,7 @@ export interface SubjectiveSearchResult {
   type: "subjective";
   question: SubjectiveQuestion;
   choices: string[];
+  matchedChoice?: string;
   introLines: string[];
   score: number;
 }
@@ -118,6 +126,10 @@ export type SearchResult =
   | SubjectiveSearchResult
   | VoSearchResult;
 
+export interface SearchOptions {
+  triviaDifficulty?: TriviaDifficultyFilter;
+}
+
 export interface AppSettings {
   contentPath: string;
   alwaysOnTop: boolean;
@@ -129,6 +141,14 @@ export interface AppSettings {
   onboardingComplete: boolean;
   windowWidth?: number;
   windowHeight?: number;
+  lastMode?: QuestionMode;
+  copyFormat?: CopyFormat;
+  triviaDifficultyFilter?: TriviaDifficultyFilter;
+  minimizeToTray?: boolean;
+  startWithWindows?: boolean;
+  windowOpacity?: number;
+  voCopyFullLine?: boolean;
+  autoCheckUpdates?: boolean;
 }
 
 export type AppTheme = "dark" | "light";
@@ -142,3 +162,10 @@ export interface SteamInstall {
   gameFolder: string;
 }
 
+export interface UpdateInfo {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  releaseUrl: string;
+  releaseNotes: string | null;
+}

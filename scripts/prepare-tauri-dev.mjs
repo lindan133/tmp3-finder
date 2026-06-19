@@ -40,7 +40,7 @@ if (isPortListening(TAURI_DEV_PORT)) {
   console.error("Tauri всегда подключается к http://localhost:5173 — иначе окно не откроется.");
   console.error("");
   console.error("Сделайте так:");
-  console.error("  1. Закройте другие npm run dev / dev:electron");
+  console.error("  1. Закройте другие npm run dev");
   console.error("  2. Или завершите процесс на порту 5173");
   if (pids.length > 0) {
     console.error(`     taskkill /PID ${pids[0]} /F`);

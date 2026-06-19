@@ -15,6 +15,7 @@
 }
 
 :root {
+  --window-opacity: 1;
   --bg: #1c1c1c;
   --surface: #262626;
   --surface-hover: #2e2e2e;
@@ -123,6 +124,7 @@ html[data-theme="light"] .sidebar-item.active {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  opacity: var(--window-opacity);
 }
 
 main {
@@ -579,6 +581,55 @@ html[data-theme="light"] .settings-about {
   margin: 6px 0;
   line-height: 1.4;
   word-break: break-word;
+}
+
+.settings-select {
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.settings-range {
+  width: 100%;
+  margin: 4px 0 8px;
+  accent-color: var(--coral);
+}
+
+.matched-answer .copyable,
+li.matched-answer {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.matched-answer .copyable {
+  border-color: rgba(143, 188, 143, 0.35);
+  background: var(--ok-soft);
+}
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: rgba(120, 170, 220, 0.12);
+  border: 1px solid rgba(120, 170, 220, 0.28);
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.update-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .install-list {

@@ -2,16 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AppLanguage,
   AppSettings,
+  CopyFormat,
   GameData,
   PathCheckResult,
   QuestionMode,
   SearchResult,
+  TriviaDifficultyFilter,
+  UpdateInfo,
 } from "./types";
 import {
   checkPath,
   checkDatabaseStale,
+  checkForUpdates,
   copyText,
   fetchConfig,
+  installUpdate,
   loadGameData,
   pickFolder,
   openExternal,
@@ -36,7 +41,7 @@ import { playMatchSound } from "./sounds";
 import { ThemeToggle } from "./ThemeToggle";
 import { HotkeyInput } from "./HotkeyInput";
 import { DEFAULT_HOTKEY } from "./hotkey";
-import { getResultCopyText } from "./result-text";
+import { getResultCopyText, type CopyOptions } from "./result-text";
 import { getVoHint } from "./vo-hints";
 import { APP_NAME, APP_VERSION } from "./version";
 import { I18nProvider, createTranslator, useI18n } from "./i18n/context";
@@ -173,7 +178,7 @@ function FinalRoundCard({
   onCopy: () => void;
 }) {
   const { t } = useI18n();
-  const { question, correctAnswers } = result;
+  const { question, correctAnswers, matchedAnswers, isItemSearch } = result;
 
   return (
     <article
@@ -190,10 +195,19 @@ function FinalRoundCard({
       <p className="category">
         <HighlightedText text={question.categoryName} query={query} />
       </p>
-      <p className="label">{t("correctAnswers")}</p>
+      <p className="label">
+        {isItemSearch ? t("matchedAnswer") : t("correctAnswers")}
+      </p>
       <ul className="answers">
         {correctAnswers.map((a) => (
-          <li key={a}>
+          <li
+            key={a}
+            className={
+              matchedAnswers.includes(a) || isItemSearch
+                ? "matched-answer"
+                : undefined
+            }
+          >
             <Copyable text={a} query={query} />
           </li>
         ))}
@@ -214,7 +228,7 @@ function SubjectiveCard({
   onCopy: () => void;
 }) {
   const { t } = useI18n();
-  const { question, choices, introLines } = result;
+  const { question, choices, introLines, matchedChoice } = result;
 
   return (
     <article
@@ -240,7 +254,7 @@ function SubjectiveCard({
       <p className="label">{t("choices")}</p>
       <ul className="options">
         {choices.map((c) => (
-          <li key={c}>
+          <li key={c} className={c === matchedChoice ? "matched-answer" : undefined}>
             <Copyable text={c} query={query} />
           </li>
         ))}
@@ -370,6 +384,10 @@ export default function App() {
   const [databaseStale, setDatabaseStale] = useState(false);
   const [loadedFingerprint, setLoadedFingerprint] = useState<string | null>(null);
   const [footerOpen, setFooterOpen] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<
+    "idle" | "checking" | "available" | "current" | "error" | "installing"
+  >("idle");
   const inputRef = useRef<HTMLInputElement>(null);
   const lastExactRef = useRef("");
   const lastAutoCopyRef = useRef("");
@@ -382,6 +400,27 @@ export default function App() {
   const language = settings?.language ?? "en";
   const i18n = useMemo(() => createTranslator(language), [language]);
   const { t, compactMode, placeholder, countLabel } = i18n;
+
+  const searchOptions = useMemo(
+    () => ({
+      triviaDifficulty: (settings?.triviaDifficultyFilter ??
+        "all") as TriviaDifficultyFilter,
+    }),
+    [settings?.triviaDifficultyFilter]
+  );
+
+  const copyOptions: CopyOptions = useMemo(
+    () => ({
+      copyFormat: settings?.copyFormat ?? "answerOnly",
+      voCopyFullLine: settings?.voCopyFullLine ?? true,
+    }),
+    [settings?.copyFormat, settings?.voCopyFullLine]
+  );
+
+  const persistMode = useCallback((nextMode: QuestionMode) => {
+    setMode(nextMode);
+    void saveSettings({ lastMode: nextMode });
+  }, []);
 
   const formatPathCheck = useCallback(
     (result: PathCheckResult): string[] => {
@@ -463,6 +502,12 @@ export default function App() {
       try {
         const config = await fetchConfig();
         setSettings(config.settings);
+        if (
+          config.settings.lastMode &&
+          MODES.includes(config.settings.lastMode)
+        ) {
+          setMode(config.settings.lastMode);
+        }
         setDefaultPath(config.defaultPath);
         setPathInput(config.contentPath);
         savedContentPathRef.current = config.contentPath;
@@ -494,7 +539,29 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings?.theme ?? "dark";
-  }, [settings?.theme]);
+    const opacity =
+      settings?.alwaysOnTop && settings.windowOpacity
+        ? settings.windowOpacity / 100
+        : 1;
+    document.documentElement.style.setProperty(
+      "--window-opacity",
+      String(opacity)
+    );
+  }, [settings?.theme, settings?.alwaysOnTop, settings?.windowOpacity]);
+
+  useEffect(() => {
+    if (!settings?.autoCheckUpdates) return;
+    void checkForUpdates()
+      .then((info) => {
+        if (info.updateAvailable) {
+          setUpdateInfo(info);
+          setUpdateStatus("available");
+        }
+      })
+      .catch(() => {
+        /* ignore startup check errors */
+      });
+  }, [settings?.autoCheckUpdates]);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -565,7 +632,7 @@ export default function App() {
       const idx = Number(e.key);
       if (e.ctrlKey && idx >= 1 && idx <= 4) {
         e.preventDefault();
-        setMode(MODES[idx - 1]);
+        persistMode(MODES[idx - 1]);
       }
       if (
         (e.ctrlKey || e.metaKey) &&
@@ -579,13 +646,13 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [sidebarOpen, showSettings, handleReloadData]);
+  }, [sidebarOpen, showSettings, handleReloadData, persistMode]);
 
   const activeResults = useMemo((): SearchResult[] => {
     if (!data || !debouncedQuery.trim()) return [];
     switch (mode) {
       case "trivia":
-        return searchTrivia(data, debouncedQuery);
+        return searchTrivia(data, debouncedQuery, undefined, searchOptions);
       case "finalRound":
         return searchFinalRound(data, debouncedQuery);
       case "subjective":
@@ -593,32 +660,32 @@ export default function App() {
       case "vo":
         return searchVo(data, debouncedQuery);
     }
-  }, [data, debouncedQuery, mode]);
+  }, [data, debouncedQuery, mode, searchOptions]);
 
   const suggestedMode = useMemo(() => {
     if (!data || !debouncedQuery.trim()) return null;
-    return findSuggestedMode(data, debouncedQuery, mode);
-  }, [data, debouncedQuery, mode]);
+    return findSuggestedMode(data, debouncedQuery, mode, searchOptions);
+  }, [data, debouncedQuery, mode, searchOptions]);
 
   const isExact = Boolean(activeResults[0] && isExactMatch(activeResults[0]));
 
   const copyTopResult = useCallback(async () => {
     const result = activeResults[0];
     if (!result) return;
-    const text = getResultCopyText(result);
+    const text = getResultCopyText(result, copyOptions);
     if (!text) return;
     await copyText(text);
     setCopiedNotice(true);
     window.setTimeout(() => setCopiedNotice(false), 1400);
-  }, [activeResults]);
+  }, [activeResults, copyOptions]);
 
   const copyResult = useCallback(async (result: SearchResult) => {
-    const text = getResultCopyText(result);
+    const text = getResultCopyText(result, copyOptions);
     if (!text) return;
     await copyText(text);
     setCopiedNotice(true);
     window.setTimeout(() => setCopiedNotice(false), 1400);
-  }, []);
+  }, [copyOptions]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -645,7 +712,7 @@ export default function App() {
     const result = activeResults[0];
     if (!result) return;
 
-    const text = getResultCopyText(result);
+    const text = getResultCopyText(result, copyOptions);
     if (!text) return;
 
     const key = `${debouncedQuery}:${text}`;
@@ -661,6 +728,7 @@ export default function App() {
     isExact,
     debouncedQuery,
     activeResults,
+    copyOptions,
   ]);
 
   const handlePathInput = (value: string) => {
@@ -680,12 +748,46 @@ export default function App() {
   const handleSettingToggle = async (
     key: keyof Pick<
       AppSettings,
-      "alwaysOnTop" | "soundOnMatch" | "autoCopyOnMatch"
+      | "alwaysOnTop"
+      | "soundOnMatch"
+      | "autoCopyOnMatch"
+      | "minimizeToTray"
+      | "startWithWindows"
+      | "voCopyFullLine"
+      | "autoCheckUpdates"
     >,
     value: boolean
   ) => {
     const next = await saveSettings({ [key]: value });
     setSettings(next);
+  };
+
+  const handleSettingValue = async <K extends keyof AppSettings>(
+    key: K,
+    value: AppSettings[K]
+  ) => {
+    const next = await saveSettings({ [key]: value });
+    setSettings(next);
+  };
+
+  const handleCheckUpdates = async () => {
+    setUpdateStatus("checking");
+    try {
+      const info = await checkForUpdates();
+      setUpdateInfo(info);
+      setUpdateStatus(info.updateAvailable ? "available" : "current");
+    } catch {
+      setUpdateStatus("error");
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    setUpdateStatus("installing");
+    try {
+      await installUpdate();
+    } catch {
+      setUpdateStatus("available");
+    }
   };
 
   const handleHotkeyChange = async (hotkey: string) => {
@@ -712,7 +814,7 @@ export default function App() {
   };
 
   const handleModeSelect = (nextMode: QuestionMode) => {
-    setMode(nextMode);
+    persistMode(nextMode);
     setSidebarOpen(false);
     inputRef.current?.focus();
   };
@@ -886,6 +988,95 @@ export default function App() {
               {t("autoCopyOnMatch")}
             </label>
 
+            <p className="settings-section">{t("copyFormat")}</p>
+            <select
+              className="settings-select"
+              value={settings?.copyFormat ?? "answerOnly"}
+              onChange={(e) =>
+                void handleSettingValue(
+                  "copyFormat",
+                  e.target.value as CopyFormat
+                )
+              }
+            >
+              <option value="answerOnly">{t("copyFormatAnswerOnly")}</option>
+              <option value="questionAndAnswer">
+                {t("copyFormatQuestionAndAnswer")}
+              </option>
+            </select>
+
+            <label>{t("triviaDifficulty")}</label>
+            <select
+              className="settings-select"
+              value={settings?.triviaDifficultyFilter ?? "all"}
+              onChange={(e) =>
+                void handleSettingValue(
+                  "triviaDifficultyFilter",
+                  e.target.value as TriviaDifficultyFilter
+                )
+              }
+            >
+              <option value="all">{t("difficultyAll")}</option>
+              <option value="easy">{t("difficultyEasy")}</option>
+              <option value="medium">{t("difficultyMedium")}</option>
+              <option value="hard">{t("difficultyHard")}</option>
+            </select>
+
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={settings?.voCopyFullLine ?? true}
+                onChange={(e) =>
+                  handleSettingToggle("voCopyFullLine", e.target.checked)
+                }
+              />
+              {t("voCopyFullLine")}
+            </label>
+
+            <p className="settings-section">{t("windowBehavior")}</p>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={settings?.minimizeToTray ?? false}
+                onChange={(e) =>
+                  handleSettingToggle("minimizeToTray", e.target.checked)
+                }
+              />
+              {t("minimizeToTray")}
+            </label>
+
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={settings?.startWithWindows ?? false}
+                onChange={(e) =>
+                  handleSettingToggle("startWithWindows", e.target.checked)
+                }
+              />
+              {t("startWithWindows")}
+            </label>
+
+            <label>
+              {t("windowOpacity", {
+                value: settings?.windowOpacity ?? 100,
+              })}
+            </label>
+            <input
+              type="range"
+              className="settings-range"
+              min={70}
+              max={100}
+              step={1}
+              value={settings?.windowOpacity ?? 100}
+              onChange={(e) =>
+                void handleSettingValue(
+                  "windowOpacity",
+                  Number(e.target.value)
+                )
+              }
+            />
+            <p className="settings-note">{t("windowOpacityHint")}</p>
+
             <p className="settings-section">{t("hotkeys")}</p>
             <label>{t("globalHotkey")}</label>
             <HotkeyInput
@@ -913,6 +1104,60 @@ export default function App() {
               <p className="settings-note">{t("reloadingJson")}</p>
             )}
             <p className="settings-note">{t("reloadHint")}</p>
+
+            <p className="settings-section">{t("updates")}</p>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={settings?.autoCheckUpdates ?? true}
+                onChange={(e) =>
+                  handleSettingToggle("autoCheckUpdates", e.target.checked)
+                }
+              />
+              {t("autoCheckUpdates")}
+            </label>
+            <button
+              type="button"
+              className="btn btn-secondary settings-reload"
+              onClick={() => void handleCheckUpdates()}
+              disabled={updateStatus === "checking"}
+            >
+              {updateStatus === "checking"
+                ? t("checkingUpdates")
+                : t("checkForUpdates")}
+            </button>
+            {updateStatus === "available" && updateInfo?.latestVersion && (
+              <p className="settings-success">
+                {t("updateAvailable", { version: updateInfo.latestVersion })}
+              </p>
+            )}
+            {updateStatus === "current" && (
+              <p className="settings-note">{t("updateUpToDate")}</p>
+            )}
+            {updateStatus === "error" && (
+              <p className="settings-error">{t("updateCheckFailed")}</p>
+            )}
+            {updateInfo?.updateAvailable && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void handleInstallUpdate()}
+                  disabled={updateStatus === "installing"}
+                >
+                  {updateStatus === "installing"
+                    ? t("installingUpdate")
+                    : t("installUpdate")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => void openExternal(updateInfo.releaseUrl)}
+                >
+                  {t("openRelease")}
+                </button>
+              </>
+            )}
 
             <div className="row">
               <button
@@ -971,6 +1216,34 @@ export default function App() {
                 >
                   {t("databaseStaleReload")}
                 </button>
+              </div>
+            )}
+
+            {(updateStatus === "available" || updateStatus === "installing") &&
+              updateInfo?.latestVersion && (
+              <div className="update-banner">
+                <span>
+                  {t("updateAvailable", { version: updateInfo.latestVersion })}
+                </span>
+                <div className="update-banner-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary stale-reload-btn"
+                    onClick={() => void handleInstallUpdate()}
+                    disabled={updateStatus === "installing"}
+                  >
+                    {updateStatus === "installing"
+                      ? t("installingUpdate")
+                      : t("installUpdate")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary stale-reload-btn"
+                    onClick={() => void openExternal(updateInfo.releaseUrl)}
+                  >
+                    {t("openRelease")}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1040,7 +1313,7 @@ export default function App() {
               <button
                 type="button"
                 className="btn btn-secondary mode-hint-btn"
-                onClick={() => setMode(suggestedMode.mode)}
+                onClick={() => persistMode(suggestedMode.mode)}
               >
                 {compactMode(suggestedMode.mode)}
               </button>

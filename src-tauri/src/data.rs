@@ -38,10 +38,42 @@ pub struct AppSettings {
     pub hotkey: String,
     pub language: String,
     pub onboarding_complete: bool,
+    #[serde(default)]
+    pub last_mode: Option<String>,
+    #[serde(default = "default_copy_format")]
+    pub copy_format: String,
+    #[serde(default = "default_trivia_difficulty")]
+    pub trivia_difficulty_filter: String,
+    #[serde(default)]
+    pub minimize_to_tray: bool,
+    #[serde(default)]
+    pub start_with_windows: bool,
+    #[serde(default = "default_window_opacity")]
+    pub window_opacity: u8,
+    #[serde(default = "default_true")]
+    pub vo_copy_full_line: bool,
+    #[serde(default = "default_true")]
+    pub auto_check_updates: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_width: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_height: Option<u32>,
+}
+
+fn default_copy_format() -> String {
+    "answerOnly".to_string()
+}
+
+fn default_trivia_difficulty() -> String {
+    "all".to_string()
+}
+
+fn default_window_opacity() -> u8 {
+    100
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppSettings {
@@ -55,6 +87,14 @@ impl Default for AppSettings {
             hotkey: DEFAULT_HOTKEY.to_string(),
             language: "en".to_string(),
             onboarding_complete: false,
+            last_mode: None,
+            copy_format: default_copy_format(),
+            trivia_difficulty_filter: default_trivia_difficulty(),
+            minimize_to_tray: false,
+            start_with_windows: false,
+            window_opacity: default_window_opacity(),
+            vo_copy_full_line: true,
+            auto_check_updates: true,
             window_width: None,
             window_height: None,
         }
@@ -131,6 +171,13 @@ impl DataService {
         }
         if settings.language.trim().is_empty() {
             settings.language = "en".to_string();
+        }
+        settings.window_opacity = settings.window_opacity.clamp(70, 100);
+        if settings.copy_format.trim().is_empty() {
+            settings.copy_format = default_copy_format();
+        }
+        if settings.trivia_difficulty_filter.trim().is_empty() {
+            settings.trivia_difficulty_filter = default_trivia_difficulty();
         }
         settings
     }

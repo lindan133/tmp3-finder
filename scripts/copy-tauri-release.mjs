@@ -11,6 +11,7 @@ const version = JSON.parse(
 
 const appExe = join(root, "src-tauri", "target", "release", "app.exe");
 const nsisDir = join(root, "src-tauri", "target", "release", "bundle", "nsis");
+const msiDir = join(root, "src-tauri", "target", "release", "bundle", "msi");
 
 await mkdir(targetDir, { recursive: true });
 
@@ -33,5 +34,18 @@ try {
   await copyFile(join(nsisDir, setup), target);
   console.log(`Copied to ${target}`);
 } catch (err) {
-  console.warn(`Skip installer: ${err instanceof Error ? err.message : err}`);
+  console.warn(`Skip NSIS installer: ${err instanceof Error ? err.message : err}`);
+}
+
+try {
+  const files = await readdir(msiDir);
+  const msi = files.find((file) => file.endsWith(".msi"));
+  if (!msi) {
+    throw new Error("MSI installer not found");
+  }
+  const target = join(targetDir, `TMP3-Finder-Setup-${version}.msi`);
+  await copyFile(join(msiDir, msi), target);
+  console.log(`Copied to ${target}`);
+} catch (err) {
+  console.warn(`Skip MSI installer: ${err instanceof Error ? err.message : err}`);
 }

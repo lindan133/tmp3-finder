@@ -13,11 +13,16 @@
     "core:window:allow-set-size",
     "core:window:allow-inner-size",
     "core:window:allow-scale-factor",
+    "core:window:allow-set-background-color",
     "core:event:allow-emit",
     "core:event:allow-listen",
+    "core:tray:default",
     "dialog:default",
     "opener:default",
     "global-shortcut:default",
+    "autostart:default",
+    "updater:default",
+    "process:allow-restart",
     "log:default"
   ]
 }

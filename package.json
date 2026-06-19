@@ -1,6 +1,6 @@
 {
   "name": "tmp3-finder",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Desktop helper for Trivia Murder Party 3 Demo — search answers from local game JSON files (Tauri, ~10 MB)",
   "author": "kankstudio.ru",
   "license": "MIT",
@@ -24,17 +24,11 @@
     "node": ">=20"
   },
   "type": "module",
-  "main": "electron/main.mjs",
   "scripts": {
     "dev": "node scripts/prepare-tauri-dev.mjs && node scripts/tauri.mjs dev",
-    "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "dev:vite": "vite",
-    "dev:web": "concurrently -k \"node server.mjs\" \"vite --mode web\"",
     "build": "tsc -b && vite build",
-    "dist": "node scripts/tauri.mjs build && node scripts/copy-tauri-release.mjs",
-    "dist:electron": "npm run build && npx electron-builder --win portable nsis --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
-    "dist:electron:portable": "npm run build && npx electron-builder --win portable --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
-    "dist:electron:setup": "npm run build && npx electron-builder --win nsis --config.directories.output=C:/Temp/tmp3-release && node scripts/copy-release.mjs",
+    "dist": "node scripts/tauri.mjs build && node scripts/post-dist.mjs",
     "test": "vitest run"
   },
   "dependencies": {
@@ -42,6 +36,8 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-global-shortcut": "^2.3.2",
     "@tauri-apps/plugin-opener": "^2.5.4",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
@@ -50,41 +46,8 @@
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
-    "concurrently": "^9.1.2",
-    "electron": "^35.1.5",
-    "electron-builder": "^26.0.12",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
-    "vitest": "^3.2.6",
-    "wait-on": "^8.0.3"
-  },
-  "build": {
-    "appId": "com.kankstudio.tmp3finder",
-    "productName": "TMP3 Finder",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "build/icon.png",
-      "package.json"
-    ],
-    "win": {
-      "icon": "build/icon.png",
-      "target": [
-        "portable",
-        "nsis"
-      ],
-      "signAndEditExecutable": false
-    },
-    "portable": {
-      "artifactName": "TMP3-Finder-Portable.exe"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "artifactName": "TMP3-Finder-Setup-${version}.exe"
-    }
+    "vitest": "^3.2.6"
   }
 }

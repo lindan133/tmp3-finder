@@ -30,13 +30,14 @@ Made with ❤️ by [kankstudio.ru](https://kankstudio.ru/).
 | File | Description |
 |------|-------------|
 | [**TMP3-Finder-Portable.exe**](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Portable.exe) | Portable — no install, ~10 MB |
-| [**TMP3-Finder-Setup-1.1.0.exe**](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Setup-1.1.0.exe) | NSIS installer (~2 MB) |
+| [**TMP3-Finder-Setup-1.2.0.exe**](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Setup-1.2.0.exe) | NSIS installer (~2 MB) |
+| [**TMP3-Finder-Setup-1.2.0.msi**](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Setup-1.2.0.msi) | MSI installer (IT / enterprise) |
 
-> **Note:** Installer filename includes the version (`1.1.0`). For newer releases, open [Releases](https://github.com/lindan133/tmp3-finder/releases/latest) and pick the matching setup file.
+> **Note:** Installer filenames include the version. Open [Releases](https://github.com/lindan133/tmp3-finder/releases/latest) for the current files.
 
 **Requirements:** Windows 10/11 with [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on most systems).
 
-**Latest:** v1.1.0 — Tauri build (~10 MB), smarter search, TMP3 Demo only. See [CHANGELOG.md](CHANGELOG.md).
+**Latest:** v1.2.0 — tray, in-app updates, MSI, signed builds (when certificate configured). See [CHANGELOG.md](CHANGELOG.md).
 
 ### Build from source
 
@@ -63,7 +64,9 @@ Or double-click `build.bat` on Windows.
 - **Database cache** — fast restarts; **Ctrl+R** reloads without opening Settings
 - **Dark & light theme**
 - **Auto-copy** on exact match (optional)
-- **English & Russian UI** — English by default; switch in Settings → Language
+- **English & Russian UI** — including tray menu; switch in Settings → Language
+- **In-app updates** — check, download, and install from Settings
+- **System tray** — minimize to tray on close (optional)
 
 ## Usage
 
@@ -112,20 +115,14 @@ npm run dev
 
 Opens the Tauri window (Vite on port 5173 + Rust backend). First run compiles Rust — wait 1–3 minutes.
 
-```bash
-npm run dev:electron   # legacy Electron shell
-npm run dev:web        # browser + local API (development only)
-```
-
 ## Project structure
 
 ```
-src-tauri/         Tauri / Rust backend (data, settings, hotkeys)
+src-tauri/         Tauri / Rust backend (data, settings, hotkeys, tray, updater)
 src/               React UI, search, i18n
-electron/          Legacy Electron shell (optional)
 build/             App icon
 docs/              README banner and screenshots
-scripts/           Build helpers
+scripts/           Build, signing, release helpers
 ```
 
 ## Tests
@@ -139,10 +136,8 @@ npm test
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Development (Tauri) |
-| `npm run dev:electron` | Development (legacy Electron) |
 | `npm run build` | Build frontend only |
-| `npm run dist` | Portable + NSIS installer (Tauri) |
-| `npm run dist:electron` | Legacy Electron portable + installer (~73 MB) |
+| `npm run dist` | Portable + NSIS + MSI + updater manifest |
 
 ## Changelog
 
@@ -171,7 +166,8 @@ The logo font (`BalterUnOff.otf`) is included for UI branding; redistribution te
 [![Последний релиз](https://img.shields.io/github/v/release/lindan133/tmp3-finder?label=скачать)](https://github.com/lindan133/tmp3-finder/releases/latest)
 
 - [Portable .exe](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Portable.exe) — без установки, ~10 МБ
-- [Установщик .exe](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Setup-1.1.0.exe)
+- [Установщик .exe](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Setup-1.2.0.exe)
+- [Установщик .msi](https://github.com/lindan133/tmp3-finder/releases/latest/download/TMP3-Finder-Setup-1.2.0.msi)
 
 **Нужно:** Windows 10/11 и WebView2 (обычно уже есть в системе).
 
@@ -179,9 +175,10 @@ The logo font (`BalterUnOff.otf`) is included for UI branding; redistribution te
 
 - Вопросы, финальный раунд, субъективные вопросы, реплики VO
 - Умный поиск с процентом совпадения, топ-3, подсказки при неверном режиме
-- Pin, глобальный хоткей, кэш базы, **Ctrl+R** — перезагрузка БД
-- Тёмная/светлая тема
-- **Язык:** английский по умолчанию; русский — в **Настройки → Язык**
+- Pin, прозрачность при Pin, глобальный хоткей, кэш базы, **Ctrl+R**
+- Трей (сворачивание при закрытии), автозапуск с Windows
+- Проверка и установка обновлений из приложения
+- Тёмная/светлая тема; **язык RU/EN** (включая меню трея)
 
 ### Как пользоваться
 
@@ -198,7 +195,7 @@ The logo font (`BalterUnOff.otf`) is included for UI branding; redistribution te
 ```bash
 npm install
 npm run dev      # разработка (Tauri)
-npm run dist     # portable + установщик
+npm run dist     # portable + NSIS + MSI
 ```
 
 Первый раз нужен [Rust](https://rustup.rs/); сборка может занять несколько минут.

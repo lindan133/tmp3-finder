@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.1.0"
+version = "1.2.0"
 description = "TMP3 Finder"
 authors = ["kankstudio.ru"]
 license = "MIT"
@@ -18,11 +18,15 @@ tauri-build = { version = "2.6.3", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
-tauri = { version = "2.11.3", features = [] }
+tauri = { version = "2.11.3", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 sha2 = "0.10"
 hex = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

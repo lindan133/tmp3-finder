@@ -1,4 +1,12 @@
-import type { GameData, QuestionMode, SearchResult, VoEntry } from "./types";
+import type {
+  GameData,
+  QuestionMode,
+  SearchOptions,
+  SearchResult,
+  TriviaDifficultyFilter,
+  TriviaQuestion,
+  VoEntry,
+} from "./types";
 
 export const MAX_SEARCH_RESULTS = 3;
 const MIN_MATCH_SCORE = 280;
@@ -114,11 +122,23 @@ function scoreMatch(query: string, target: string): number {
   const ratio = matched / queryTokens.length;
   if (ratio < 0.35) return 0;
 
+  let score = ratio * 500 + matched * 20;
+
+  if (queryTokens.length > 1 && matched === queryTokens.length) {
+    score += 120 * matched;
+    const exactTokenMatches = queryTokens.filter((qt) =>
+      targetTokens.some((tt) => qt === tt)
+    ).length;
+    if (exactTokenMatches === queryTokens.length) {
+      score += 80 * queryTokens.length;
+    }
+  }
+
   if (q.length >= 40 && !t.includes(q) && !q.includes(t) && ratio < 0.5) {
     return 0;
   }
 
-  return ratio * 500 + matched * 20;
+  return score;
 }
 
 function scoreCategoryMatch(query: string, categoryName: string): number {
@@ -151,7 +171,7 @@ function buildFinalRoundCorrectAnswers(
   query: string,
   choices: { text: string; correct?: boolean }[],
   categoryScore: number
-): string[] {
+): { answers: string[]; matchedAnswers: string[]; isItemSearch: boolean } {
   const allCorrect = choices
     .filter((c) => c.correct)
     .map((c) => stripMarkup(c.text));
@@ -167,17 +187,27 @@ function buildFinalRoundCorrectAnswers(
     categoryScore >= bestItemScore;
 
   if (categoryDominates || itemMatches.length === 0) {
-    return sortAlphabetically(allCorrect);
+    return {
+      answers: sortAlphabetically(allCorrect),
+      matchedAnswers: [],
+      isItemSearch: false,
+    };
   }
 
-  return sortAlphabetically(itemMatches.map((item) => item.text));
+  const matchedAnswers = sortAlphabetically(itemMatches.map((item) => item.text));
+  return {
+    answers: matchedAnswers,
+    matchedAnswers,
+    isItemSearch: true,
+  };
 }
 
-function scoreChoiceMatch(
+function findBestMatchingChoice(
   query: string,
   choices: { text: string; correct?: boolean }[]
-): number {
+): { score: number; text?: string } {
   let best = 0;
+  let matchedText: string | undefined;
 
   for (const choice of choices) {
     const text = stripMarkup(choice.text);
@@ -192,10 +222,30 @@ function scoreChoiceMatch(
     else score = scoreMatch(query, text);
 
     if (!choice.correct) score *= 0.2;
-    best = Math.max(best, score);
+    if (score > best) {
+      best = score;
+      matchedText = text;
+    }
   }
 
-  return best;
+  return { score: best, text: matchedText };
+}
+
+function scoreChoiceMatch(
+  query: string,
+  choices: { text: string; correct?: boolean }[]
+): number {
+  return findBestMatchingChoice(query, choices).score;
+}
+
+function matchesTriviaDifficulty(
+  question: TriviaQuestion,
+  filter: TriviaDifficultyFilter
+): boolean {
+  if (filter === "all") return true;
+  const difficulty = normalize(question.difficulty ?? "");
+  if (!difficulty) return filter === "easy";
+  return difficulty.includes(filter);
 }
 
 function pickTopResults<T extends { score: number }>(
@@ -229,20 +279,28 @@ function filterByConfidence<T extends SearchResult>(results: T[]): T[] {
 export function searchTrivia(
   data: GameData,
   query: string,
-  limit = MAX_SEARCH_RESULTS
+  limit = MAX_SEARCH_RESULTS,
+  options: SearchOptions = {}
 ) {
   if (!query.trim()) return [];
 
-  const ranked = data.trivia.map((question) => {
+  const difficulty = options.triviaDifficulty ?? "all";
+  const pool =
+    difficulty === "all"
+      ? data.trivia
+      : data.trivia.filter((q) => matchesTriviaDifficulty(q, difficulty));
+
+  const ranked = pool.map((question) => {
     const questionScore = scoreMatch(query, question.question);
-    const choiceScore = scoreChoiceMatch(query, question.choices);
+    const choiceMatch = findBestMatchingChoice(query, question.choices);
     const correct = question.choices.find((c) => c.correct);
 
     return {
       type: "trivia" as const,
       question,
       correctAnswer: correct ? stripMarkup(correct.text) : "—",
-      score: Math.max(questionScore, choiceScore),
+      matchedChoice: choiceMatch.text,
+      score: Math.max(questionScore, choiceMatch.score),
     };
   });
 
@@ -261,7 +319,7 @@ export function searchFinalRound(
   const ranked = data.finalRound.map((question) => {
     const categoryScore = scoreCategoryMatch(query, question.categoryName);
     const choiceScore = scoreChoiceMatch(query, question.choices);
-    const correctAnswers = buildFinalRoundCorrectAnswers(
+    const built = buildFinalRoundCorrectAnswers(
       query,
       question.choices,
       categoryScore
@@ -270,7 +328,9 @@ export function searchFinalRound(
     return {
       type: "finalRound" as const,
       question,
-      correctAnswers,
+      correctAnswers: built.answers,
+      matchedAnswers: built.matchedAnswers,
+      isItemSearch: built.isItemSearch,
       wrongAnswers: question.choices
         .filter((c) => !c.correct)
         .map((c) => stripMarkup(c.text)),
@@ -297,7 +357,7 @@ export function searchSubjective(
 
   const ranked = data.subjective.map((question) => {
     const questionScore = scoreMatch(query, question.question);
-    const choiceScore = scoreChoiceMatch(
+    const choiceMatch = findBestMatchingChoice(
       query,
       question.choices.map((c) => ({ ...c, correct: true }))
     );
@@ -318,8 +378,9 @@ export function searchSubjective(
       choices: sortAlphabetically(
         question.choices.map((c) => stripMarkup(c.text))
       ),
+      matchedChoice: choiceMatch.text,
       introLines,
-      score: Math.max(questionScore, choiceScore, introScore),
+      score: Math.max(questionScore, choiceMatch.score, introScore),
     };
   });
 
@@ -405,7 +466,8 @@ const MODE_HOTKEY_INDEX: Record<QuestionMode, number> = {
 export function findSuggestedMode(
   data: GameData,
   query: string,
-  currentMode: QuestionMode
+  currentMode: QuestionMode,
+  options: SearchOptions = {}
 ): { mode: QuestionMode; confidence: number; hotkey: number } | null {
   if (!query.trim()) return null;
 
@@ -413,7 +475,7 @@ export function findSuggestedMode(
     QuestionMode,
     (d: GameData, q: string) => SearchResult[]
   > = {
-    trivia: searchTrivia,
+    trivia: (d, q) => searchTrivia(d, q, MAX_SEARCH_RESULTS, options),
     finalRound: searchFinalRound,
     subjective: searchSubjective,
     vo: searchVo,
@@ -456,12 +518,17 @@ export function getMatchConfidence(result: SearchResult): number {
   switch (result.type) {
     case "trivia":
     case "subjective":
-      return Math.min(100, Math.max(5, Math.round((score / 1000) * 100)));
+      if (score >= 1000) return 100;
+      if (score >= 800) {
+        return Math.min(99, Math.round(90 + ((score - 800) / 200) * 9));
+      }
+      return Math.min(89, Math.max(5, Math.round((score / 800) * 89)));
     case "finalRound":
     case "vo":
+      if (score >= 10000) return 100;
       if (score >= 8500) {
-        return Math.min(100, Math.round(88 + (score - 8500) / 300));
+        return Math.min(99, Math.round(90 + ((score - 8500) / 1500) * 10));
       }
-      return Math.min(87, Math.max(5, Math.round((score / 8500) * 87)));
+      return Math.min(89, Math.max(5, Math.round((score / 8500) * 89)));
   }
 }

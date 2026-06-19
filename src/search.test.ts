@@ -143,6 +143,53 @@ describe("search modes", () => {
     };
     const results = searchFinalRound(data, "apple");
     expect(results[0]?.correctAnswers).toEqual(["apple"]);
+    expect(results[0]?.isItemSearch).toBe(true);
+    expect(results[0]?.matchedAnswers).toEqual(["apple"]);
+  });
+
+  it("filters trivia by difficulty", () => {
+    const data: GameData = {
+      ...mockData,
+      trivia: [
+        {
+          id: "easy-1",
+          question: "Easy question about cats",
+          difficulty: "Easy",
+          choices: [{ text: "meow", correct: true }],
+        },
+        {
+          id: "hard-1",
+          question: "Hard question about cats",
+          difficulty: "Hard",
+          choices: [{ text: "felis", correct: true }],
+        },
+      ],
+    };
+    const easyOnly = searchTrivia(data, "cats", MAX_SEARCH_RESULTS, {
+      triviaDifficulty: "easy",
+    });
+    expect(easyOnly).toHaveLength(1);
+    expect(easyOnly[0]?.question.id).toBe("easy-1");
+  });
+
+  it("prioritizes multi-word queries when all tokens match", () => {
+    const data: GameData = {
+      ...mockData,
+      trivia: [
+        {
+          id: "capital-france",
+          question: "What is the capital of France?",
+          choices: [{ text: "Paris", correct: true }],
+        },
+        {
+          id: "capital-germany",
+          question: "What is the capital of Germany?",
+          choices: [{ text: "Berlin", correct: true }],
+        },
+      ],
+    };
+    const results = searchTrivia(data, "capital france");
+    expect(results[0]?.question.id).toBe("capital-france");
   });
 
   it("detects exact trivia match", () => {
@@ -155,6 +202,23 @@ describe("search modes", () => {
     const results = searchTrivia(mockData, "Blue");
     expect(results[0]).toBeTruthy();
     expect(getMatchConfidence(results[0]!)).toBeGreaterThan(80);
+  });
+
+  it("reports 100% for exact final round category match", () => {
+    const data: GameData = {
+      ...mockData,
+      finalRound: [
+        {
+          id: "f-shake",
+          categoryName: "Shakespearean Tragedies",
+          choices: [{ text: "Hamlet", correct: true }],
+        },
+      ],
+    };
+    const results = searchFinalRound(data, "Shakespearean Tragedies");
+    expect(results[0]).toBeTruthy();
+    expect(isExactMatch(results[0]!)).toBe(true);
+    expect(getMatchConfidence(results[0]!)).toBe(100);
   });
 
   it("finds trivia by long partial question text", () => {
